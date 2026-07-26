@@ -27,7 +27,7 @@ interface QuotaMetricBase {
   readonly warning?: string
 }
 
-type AllowanceValues =
+type AllowanceMetricInputValues =
   | {
       readonly used: number
       readonly remaining?: number
@@ -39,11 +39,13 @@ type AllowanceValues =
       readonly limit?: number
     }
 
-export type AllowanceWindowMetric = QuotaMetricBase &
-  AllowanceValues & {
-    readonly kind: "allowance_window"
-    readonly unit: "percent"
-  }
+export interface AllowanceWindowMetric extends QuotaMetricBase {
+  readonly kind: "allowance_window"
+  readonly unit: "percent"
+  readonly used: number
+  readonly remaining: number
+  readonly limit: number
+}
 
 export interface TokenUsageMetric extends QuotaMetricBase {
   readonly kind: "token_usage"
@@ -124,7 +126,7 @@ export interface QuotaReport {
   readonly sections: readonly QuotaSection[]
 }
 
-type AllowanceMetricInput = QuotaMetricBase & AllowanceValues
+type AllowanceMetricInput = QuotaMetricBase & AllowanceMetricInputValues
 
 interface UsageMetricInput extends QuotaMetricBase {
   readonly used: number

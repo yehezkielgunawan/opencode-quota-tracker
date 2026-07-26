@@ -10,6 +10,7 @@ import {
 import type {
   AccountKind,
   Acquisition,
+  AllowanceWindowMetric,
   Authority,
   Collector,
   CollectorOutcome,
@@ -310,6 +311,27 @@ describe("quota domain model", () => {
       unit: "percent" as const,
       limit: 50,
     }
+    const allowanceWithoutUsed = {
+      ...sharedMetric,
+      kind: "allowance_window" as const,
+      unit: "percent" as const,
+      remaining: 40,
+      limit: 100,
+    }
+    const allowanceWithoutRemaining = {
+      ...sharedMetric,
+      kind: "allowance_window" as const,
+      unit: "percent" as const,
+      used: 60,
+      limit: 100,
+    }
+    const allowanceWithoutLimit = {
+      ...sharedMetric,
+      kind: "allowance_window" as const,
+      unit: "percent" as const,
+      used: 60,
+      remaining: 40,
+    }
     const tokenUsageWithoutUsed = {
       ...sharedMetric,
       kind: "token_usage" as const,
@@ -331,6 +353,12 @@ describe("quota domain model", () => {
     const invalidAllowance: QuotaMetric = allowanceWithoutValue
     // @ts-expect-error Allowance metrics require used or remaining, not only a limit.
     const invalidLimitOnlyAllowance: QuotaMetric = allowanceWithLimitOnly
+    // @ts-expect-error Normalized allowance metrics always contain used.
+    const invalidMissingUsed: AllowanceWindowMetric = allowanceWithoutUsed
+    // @ts-expect-error QuotaMetric cannot contain an allowance without remaining.
+    const invalidMissingRemaining: QuotaMetric = allowanceWithoutRemaining
+    // @ts-expect-error Normalized allowance metrics always contain limit.
+    const invalidMissingLimit: AllowanceWindowMetric = allowanceWithoutLimit
     // @ts-expect-error Token usage metrics require a used amount.
     const invalidTokenUsage: QuotaMetric = tokenUsageWithoutUsed
     // @ts-expect-error Failure results cannot contain metrics, including through variables.
@@ -340,6 +368,9 @@ describe("quota domain model", () => {
       invalidPair,
       invalidAllowance,
       invalidLimitOnlyAllowance,
+      invalidMissingUsed,
+      invalidMissingRemaining,
+      invalidMissingLimit,
       invalidTokenUsage,
       invalidFailure,
     ]
