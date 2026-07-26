@@ -123,12 +123,6 @@ interface UsageMetricInput extends QuotaMetricBase {
 
 const numericFields = ["used", "remaining", "limit"] as const
 
-function assertPercentage(name: string, value: number): void {
-  if (!Number.isFinite(value) || value < 0 || value > 100) {
-    throw new TypeError(`${name} must be a finite percentage between 0 and 100`)
-  }
-}
-
 function assertNonNegative(name: string, value: number): void {
   if (!Number.isFinite(value) || value < 0) {
     throw new TypeError(`${name} must be a finite non-negative number`)
@@ -149,12 +143,24 @@ export function createAllowanceMetric(input: AllowanceMetricInput): AllowanceWin
     throw new TypeError("Allowance metrics require used, remaining, or limit")
   }
 
-  for (const field of numericFields) {
-    const value = input[field]
-    if (value !== undefined) assertPercentage(field, value)
+  const limit = input.limit === undefined ? {} : { limit: clampPercent(input.limit) }
+
+  if (input.used !== undefined) {
+    const used = clampPercent(input.used)
+    const remaining =
+      input.remaining === undefined ? remainingFromUsed(used) : clampPercent(input.remaining)
+
+    return { ...input, ...limit, used, remaining, kind: "allowance_window", unit: "percent" }
   }
 
-  return { ...input, kind: "allowance_window", unit: "percent" }
+  if (input.remaining !== undefined) {
+    const remaining = clampPercent(input.remaining)
+    const used = 100 - remaining
+
+    return { ...input, ...limit, used, remaining, kind: "allowance_window", unit: "percent" }
+  }
+
+  return { ...input, ...limit, kind: "allowance_window", unit: "percent" }
 }
 
 export function createTokenUsageMetric(input: UsageMetricInput): TokenUsageMetric {

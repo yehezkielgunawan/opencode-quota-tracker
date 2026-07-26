@@ -91,8 +91,7 @@ describe("quota metric constructors", () => {
   it.each([
     ["used", Number.NaN],
     ["remaining", Number.POSITIVE_INFINITY],
-    ["limit", -1],
-    ["used", 100.1],
+    ["limit", Number.NEGATIVE_INFINITY],
   ] as const)("rejects invalid allowance %s value %s", (field, value) => {
     const input = { ...metricBase, [field]: value } as unknown as Parameters<
       typeof createAllowanceMetric
@@ -101,8 +100,43 @@ describe("quota metric constructors", () => {
     expect(() => createAllowanceMetric(input)).toThrow(TypeError)
   })
 
-  it("accepts a provider percentage only after explicit clamping", () => {
-    expect(createAllowanceMetric({ ...metricBase, used: clampPercent(112) }).used).toBe(100)
+  it.each([
+    [-10, 0, 100],
+    [130, 100, 0],
+    [37.5, 37.5, 62.5],
+  ])("normalizes used %s to used %s and remaining %s", (used, expectedUsed, remaining) => {
+    expect(createAllowanceMetric({ ...metricBase, used })).toMatchObject({
+      used: expectedUsed,
+      remaining,
+    })
+  })
+
+  it.each([
+    [-20, 0, 100],
+    [140, 100, 0],
+  ])(
+    "normalizes remaining %s to remaining %s and used %s",
+    (remaining, expectedRemaining, used) => {
+      expect(createAllowanceMetric({ ...metricBase, remaining })).toMatchObject({
+        used,
+        remaining: expectedRemaining,
+      })
+    },
+  )
+
+  it("clamps explicit used and remaining without reconciling them", () => {
+    expect(createAllowanceMetric({ ...metricBase, used: 20, remaining: 20 })).toMatchObject({
+      used: 20,
+      remaining: 20,
+    })
+  })
+
+  it("clamps an optional percentage limit", () => {
+    expect(createAllowanceMetric({ ...metricBase, used: 50, limit: 150 })).toMatchObject({
+      used: 50,
+      remaining: 50,
+      limit: 100,
+    })
   })
 
   it("creates token and cost metrics with fixed discriminators", () => {
