@@ -1,4 +1,6 @@
-export type ProviderId = "openai" | "anthropic" | "opencode"
+export type Provider = "openai" | "anthropic" | "opencode"
+
+export type ProviderId = Provider
 
 export type AccountKind = "subscription" | "api_organization" | "local"
 
@@ -6,17 +8,21 @@ export type MetricKind = "allowance_window" | "token_usage" | "cost"
 
 export type MetricUnit = "percent" | "tokens" | "usd"
 
-export type MetricAuthority = "authoritative" | "provider_reported" | "local_record"
+export type Authority = "authoritative" | "provider_reported" | "local_record"
 
-export type MetricAcquisition = "official_api" | "consumer_api" | "local_database"
+export type MetricAuthority = Authority
+
+export type Acquisition = "official_api" | "consumer_api" | "local_database"
+
+export type MetricAcquisition = Acquisition
 
 interface QuotaMetricBase {
-  readonly provider: ProviderId
+  readonly provider: Provider
   readonly accountKind: AccountKind
   readonly label: string
   readonly resetsAt?: Date
-  readonly authority: MetricAuthority
-  readonly acquisition: MetricAcquisition
+  readonly authority: Authority
+  readonly acquisition: Acquisition
   readonly fetchedAt: Date
   readonly warning?: string
 }
@@ -31,11 +37,6 @@ type AllowanceValues =
       readonly used?: number
       readonly remaining: number
       readonly limit?: number
-    }
-  | {
-      readonly used?: number
-      readonly remaining?: number
-      readonly limit: number
     }
 
 export type AllowanceWindowMetric = QuotaMetricBase &
@@ -74,7 +75,7 @@ export type CollectorState =
 
 interface CollectorResultBase {
   readonly collectorId: string
-  readonly provider: ProviderId
+  readonly provider: Provider
   readonly accountKind: AccountKind
   readonly fetchedAt: Date
 }
@@ -99,18 +100,28 @@ type CollectorFailureResult = CollectorResultBase & {
   readonly metrics?: never
 }
 
-export type CollectorResult = CollectorMetricResult | CollectorFailureResult
+export type CollectorOutcome = CollectorMetricResult | CollectorFailureResult
 
-export interface QuotaCollector {
+export type CollectorResult = CollectorOutcome
+
+export interface Collector {
   readonly id: string
-  readonly provider: ProviderId
+  readonly provider: Provider
   readonly accountKind: AccountKind
-  collect(): Promise<CollectorResult>
+  collect(): Promise<CollectorOutcome>
+}
+
+export type QuotaCollector = Collector
+
+export interface QuotaSection {
+  readonly provider: Provider
+  readonly accountKind: AccountKind
+  readonly outcomes: readonly CollectorOutcome[]
 }
 
 export interface QuotaReport {
   readonly generatedAt: Date
-  readonly results: readonly CollectorResult[]
+  readonly sections: readonly QuotaSection[]
 }
 
 type AllowanceMetricInput = QuotaMetricBase & AllowanceValues
@@ -120,8 +131,6 @@ interface UsageMetricInput extends QuotaMetricBase {
   readonly remaining?: number
   readonly limit?: number
 }
-
-const numericFields = ["used", "remaining", "limit"] as const
 
 function assertNonNegative(name: string, value: number): void {
   if (!Number.isFinite(value) || value < 0) {
@@ -139,28 +148,28 @@ function validateUsageInput(input: UsageMetricInput): void {
 }
 
 export function createAllowanceMetric(input: AllowanceMetricInput): AllowanceWindowMetric {
-  if (numericFields.every((field) => input[field] === undefined)) {
-    throw new TypeError("Allowance metrics require used, remaining, or limit")
+  if (input.used === undefined && input.remaining === undefined) {
+    throw new TypeError("Allowance metrics require used or remaining")
   }
 
-  const limit = input.limit === undefined ? {} : { limit: clampPercent(input.limit) }
+  const limit = clampPercent(input.limit ?? 100)
 
   if (input.used !== undefined) {
     const used = clampPercent(input.used)
     const remaining =
       input.remaining === undefined ? remainingFromUsed(used) : clampPercent(input.remaining)
 
-    return { ...input, ...limit, used, remaining, kind: "allowance_window", unit: "percent" }
+    return { ...input, limit, used, remaining, kind: "allowance_window", unit: "percent" }
   }
 
   if (input.remaining !== undefined) {
     const remaining = clampPercent(input.remaining)
     const used = 100 - remaining
 
-    return { ...input, ...limit, used, remaining, kind: "allowance_window", unit: "percent" }
+    return { ...input, limit, used, remaining, kind: "allowance_window", unit: "percent" }
   }
 
-  return { ...input, ...limit, kind: "allowance_window", unit: "percent" }
+  throw new TypeError("Allowance metrics require used or remaining")
 }
 
 export function createTokenUsageMetric(input: UsageMetricInput): TokenUsageMetric {

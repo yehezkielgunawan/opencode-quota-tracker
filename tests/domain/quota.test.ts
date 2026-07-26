@@ -6,20 +6,21 @@ import {
   createCostMetric,
   createTokenUsageMetric,
   remainingFromUsed,
-} from "../../src/core/quota"
+} from "../../src/domain/quota"
 import type {
   AccountKind,
-  CollectorResult,
+  Acquisition,
+  Authority,
+  Collector,
+  CollectorOutcome,
   CollectorState,
-  MetricAcquisition,
-  MetricAuthority,
   MetricKind,
   MetricUnit,
-  ProviderId,
-  QuotaCollector,
+  Provider,
   QuotaMetric,
   QuotaReport,
-} from "../../src/core/quota"
+  QuotaSection,
+} from "../../src/domain/quota"
 
 describe("clampPercent", () => {
   it.each([0, 42.5, 100])("preserves an in-range percentage: %s", (value) => {
@@ -77,6 +78,7 @@ describe("quota metric constructors", () => {
       ...metricBase,
       used: 25,
       remaining: 75,
+      limit: 100,
       kind: "allowance_window",
       unit: "percent",
     })
@@ -101,15 +103,19 @@ describe("quota metric constructors", () => {
   })
 
   it.each([
-    [-10, 0, 100],
-    [130, 100, 0],
+    [-3, 0, 100],
+    [118, 100, 0],
     [37.5, 37.5, 62.5],
-  ])("normalizes used %s to used %s and remaining %s", (used, expectedUsed, remaining) => {
-    expect(createAllowanceMetric({ ...metricBase, used })).toMatchObject({
-      used: expectedUsed,
-      remaining,
-    })
-  })
+  ])(
+    "normalizes used %s to used %s, remaining %s, and the default limit",
+    (used, expectedUsed, remaining) => {
+      expect(createAllowanceMetric({ ...metricBase, used })).toMatchObject({
+        used: expectedUsed,
+        remaining,
+        limit: 100,
+      })
+    },
+  )
 
   it.each([
     [-20, 0, 100],
@@ -137,6 +143,12 @@ describe("quota metric constructors", () => {
       remaining: 50,
       limit: 100,
     })
+  })
+
+  it("rejects an allowance metric with only a limit", () => {
+    const input = { ...metricBase, limit: 50 } as Parameters<typeof createAllowanceMetric>[0]
+
+    expect(() => createAllowanceMetric(input)).toThrow(TypeError)
   })
 
   it("creates token and cost metrics with fixed discriminators", () => {
@@ -177,7 +189,7 @@ describe("quota metric constructors", () => {
 
 describe("quota domain model", () => {
   it("defines the normalized provider and metric vocabulary", () => {
-    expectTypeOf<ProviderId>().toEqualTypeOf<"openai" | "anthropic" | "opencode">()
+    expectTypeOf<Provider>().toEqualTypeOf<"openai" | "anthropic" | "opencode">()
     expectTypeOf<AccountKind>().toEqualTypeOf<
       "subscription" | "api_organization" | "local"
     >()
@@ -185,10 +197,10 @@ describe("quota domain model", () => {
       "allowance_window" | "token_usage" | "cost"
     >()
     expectTypeOf<MetricUnit>().toEqualTypeOf<"percent" | "tokens" | "usd">()
-    expectTypeOf<MetricAuthority>().toEqualTypeOf<
+    expectTypeOf<Authority>().toEqualTypeOf<
       "authoritative" | "provider_reported" | "local_record"
     >()
-    expectTypeOf<MetricAcquisition>().toEqualTypeOf<
+    expectTypeOf<Acquisition>().toEqualTypeOf<
       "official_api" | "consumer_api" | "local_database"
     >()
     expectTypeOf<CollectorState>().toEqualTypeOf<
@@ -219,7 +231,7 @@ describe("quota domain model", () => {
       acquisition: "consumer_api",
       fetchedAt,
     }
-    const success: CollectorResult = {
+    const success: CollectorOutcome = {
       collectorId: "openai-subscription",
       provider: "openai",
       accountKind: "subscription",
@@ -227,7 +239,7 @@ describe("quota domain model", () => {
       fetchedAt,
       metrics: [metric],
     }
-    const failure: CollectorResult = {
+    const failure: CollectorOutcome = {
       collectorId: "anthropic-api",
       provider: "anthropic",
       accountKind: "api_organization",
@@ -235,16 +247,21 @@ describe("quota domain model", () => {
       fetchedAt,
       message: "Authentication is required",
     }
-    const stale: CollectorResult = {
+    const stale: CollectorOutcome = {
       ...success,
       state: "stale",
       message: "Using the last successful response",
     }
+    const section: QuotaSection = {
+      provider: "openai",
+      accountKind: "subscription",
+      outcomes: [success, stale],
+    }
     const report: QuotaReport = {
       generatedAt: fetchedAt,
-      results: [success, failure, stale],
+      sections: [section],
     }
-    const collector: QuotaCollector = {
+    const collector: Collector = {
       id: "openai-subscription",
       provider: "openai",
       accountKind: "subscription",
@@ -260,9 +277,8 @@ describe("quota domain model", () => {
     expect(failure.message).toBe("Authentication is required")
     expect("metrics" in failure).toBe(false)
     expect(stale.metrics).toEqual([metric])
-    expect(report.results.map((result) => result.collectorId)).toEqual([
+    expect(report.sections[0]?.outcomes.map((outcome) => outcome.collectorId)).toEqual([
       "openai-subscription",
-      "anthropic-api",
       "openai-subscription",
     ])
 
@@ -288,6 +304,12 @@ describe("quota domain model", () => {
       kind: "allowance_window" as const,
       unit: "percent" as const,
     }
+    const allowanceWithLimitOnly = {
+      ...sharedMetric,
+      kind: "allowance_window" as const,
+      unit: "percent" as const,
+      limit: 50,
+    }
     const tokenUsageWithoutUsed = {
       ...sharedMetric,
       kind: "token_usage" as const,
@@ -307,11 +329,19 @@ describe("quota domain model", () => {
     const invalidPair: QuotaMetric = mismatchedKindAndUnit
     // @ts-expect-error Allowance metrics must contain at least one numeric value.
     const invalidAllowance: QuotaMetric = allowanceWithoutValue
+    // @ts-expect-error Allowance metrics require used or remaining, not only a limit.
+    const invalidLimitOnlyAllowance: QuotaMetric = allowanceWithLimitOnly
     // @ts-expect-error Token usage metrics require a used amount.
     const invalidTokenUsage: QuotaMetric = tokenUsageWithoutUsed
     // @ts-expect-error Failure results cannot contain metrics, including through variables.
-    const invalidFailure: CollectorResult = failureWithMetrics
+    const invalidFailure: CollectorOutcome = failureWithMetrics
 
-    void [invalidPair, invalidAllowance, invalidTokenUsage, invalidFailure]
+    void [
+      invalidPair,
+      invalidAllowance,
+      invalidLimitOnlyAllowance,
+      invalidTokenUsage,
+      invalidFailure,
+    ]
   })
 })
