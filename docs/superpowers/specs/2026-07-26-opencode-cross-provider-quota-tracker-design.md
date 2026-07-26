@@ -14,10 +14,11 @@ them:
 2. Organization API usage and cost from official provider Admin APIs.
 3. Token usage and recorded cost from the local OpenCode installation.
 
-The plugin uses a provider-adapter architecture, reuses existing OpenCode OAuth
-credentials for consumer subscription checks, and accepts optional Admin API
-keys through environment variables. It stores no historical snapshots and does
-not create a second usage database in v1.
+The plugin uses a provider-adapter architecture, reuses OpenCode OAuth for the
+OpenAI subscription check, reuses Claude Code OAuth for the Anthropic
+subscription check, and accepts optional Admin API keys through environment
+variables. It stores no historical snapshots and does not create a second usage
+database in v1.
 
 ## Research Findings
 
@@ -169,9 +170,11 @@ accounting.
 
 ### Anthropic Subscription
 
-The collector uses compatible OpenCode OAuth credentials to request consumer
-allowance windows. Returned reset periods are accepted from the response rather
-than inferred from fixed calendar rules.
+The collector reuses Claude Code OAuth credentials, preferring the macOS
+Keychain entry and otherwise reading `~/.claude/.credentials.json`, to request
+consumer allowance windows. It does not source Anthropic personal OAuth from
+OpenCode. Returned reset periods are accepted from the response rather than
+inferred from fixed calendar rules.
 
 This data is labeled `provider_reported` and `consumer_api`. The endpoint is
 treated as volatile and its response is runtime-validated.
@@ -259,6 +262,9 @@ explains which data sources are unavailable.
 
 - Admin keys are read only from `OPENAI_ADMIN_API_KEY` and
   `ANTHROPIC_ADMIN_API_KEY`.
+- OpenAI subscription OAuth is reused from OpenCode. Anthropic subscription
+  OAuth is reused from Claude Code's macOS Keychain entry or
+  `~/.claude/.credentials.json`.
 - Admin keys and OAuth tokens are never persisted, logged, included in errors,
   or rendered.
 - OAuth tokens are sent only to an allowlisted HTTPS host owned by the original
