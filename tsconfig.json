@@ -7,21 +7,30 @@
       "ES2022"
     ],
     "strict": true,
+    "allowJs": true,
+    "checkJs": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
+    "noEmit": true,
     "jsx": "preserve",
     "jsxImportSource": "@opentui/solid",
-    "rootDir": "src",
-    "outDir": "dist"
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "scripts/**/*.mjs",
+    "vitest.config.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
   ]
 }

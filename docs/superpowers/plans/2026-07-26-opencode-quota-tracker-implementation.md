@@ -27,9 +27,12 @@
 - `src/collectors/anthropic-subscription.ts`: Claude consumer allowance collection.
 - `src/collectors/anthropic-admin.ts`: Anthropic organization usage and cost collection.
 - `src/tui.tsx`: `/quota` registration, lifecycle cleanup, and scrollable dialog.
-- `tests/**/*.test.ts`: Node-based unit and collector tests with mocked fetch, clocks, credentials, and SQLite adapters.
+- `tests/**/*.test.{ts,tsx}`: Node-based unit and collector tests with mocked fetch, clocks, credentials, and SQLite adapters.
 - `tests/fixtures/**`: sanitized provider payloads and a SQL fixture builder.
-- `scripts/build-tui.mjs`: Babel Solid universal transform for the TUI entry.
+- `tsconfig.json`: strict no-emit checking for source, tests, scripts, and test configuration.
+- `tsconfig.build.json`: source-only runtime JavaScript and declaration emission.
+- `scripts/build-tui.mjs`: recursive Babel Solid universal transform for every TSX source module.
+- `scripts/verify-package.mjs`: prepack guard for the published `./tui` JavaScript and type targets.
 
 ## Execution Rules
 
@@ -38,7 +41,7 @@
 - Never use live credentials or provider endpoints in the standard suite.
 - Keep OpenAI subscription OAuth sourced from OpenCode and Anthropic subscription OAuth sourced from Claude Code's macOS Keychain or `~/.claude/.credentials.json`.
 - Read Admin keys only from `OPENAI_ADMIN_API_KEY` and `ANTHROPIC_ADMIN_API_KEY`.
-- Do not install Bun separately. OpenCode's host can provide `bun:sqlite`; Node 22 tests and standalone execution use `node:sqlite`.
+- Do not install Bun separately. OpenCode's host can provide `bun:sqlite`; Node 22.12 and newer tests and standalone execution use `node:sqlite`.
 - Do not add `better-sqlite3`, `xdg-basedir`, or another native runtime dependency.
 
 ### Task 1: Scaffold pnpm, TypeScript, Vitest, and Babel
@@ -47,24 +50,29 @@
 - Create: `package.json`
 - Create: `pnpm-lock.yaml`
 - Create: `tsconfig.json`
+- Create: `tsconfig.build.json`
 - Create: `vitest.config.ts`
 - Create: `scripts/clean-dist.mjs`
 - Create: `scripts/build-tui.mjs`
+- Create: `scripts/verify-package.mjs`
 - Create: `src/scaffold.d.ts`
+- Create: `tests/scaffold.test.tsx`
+- Create: `tests/build-tui.test.ts`
+- Create: `tests/verify-package.test.ts`
 - Modify: `.gitignore`
 - Modify: `docs/superpowers/specs/2026-07-26-opencode-cross-provider-quota-tracker-design.md`
 
 - [ ] **Step 1: Pin the package contract**
 
-Set `packageManager` to `pnpm@9.4.0`, Node to `>=22`, OpenCode to `>=1.18.0`, ESM exports to `./tui`, package files to `dist/`, `README.md`, and `LICENSE`, and `oc-plugin` to `["tui"]`. Keep host libraries in both peer dependencies and development dependencies, and keep runtime dependencies empty.
+Set `packageManager` to `pnpm@9.4.0`, Node to `>=22.12.0`, OpenCode to `>=1.18.0`, ESM exports to `./tui`, package files to `dist/`, `README.md`, and `LICENSE`, and `oc-plugin` to `["tui"]`. Keep host libraries in both peer dependencies and development dependencies, keep runtime dependencies empty, and add a `prepack` guard that builds and verifies both `./tui` export targets.
 
 - [ ] **Step 2: Configure strict compilation and tests**
 
-Use ES2022, ESM, bundler resolution, strict optional/index checks, declaration maps, source maps, preserved JSX, `jsxImportSource: "@opentui/solid"`, `rootDir: "src"`, and `outDir: "dist"`. Configure Vitest's Node environment for `tests/**/*.test.ts` and `tests/**/*.test.tsx`; use `vitest run --passWithNoTests` while the scaffold has no tests.
+Use ES2022, ESM, bundler resolution, strict optional/index checks, preserved JSX, and `jsxImportSource: "@opentui/solid"`. Keep `tsconfig.json` as the no-emit checker for source, tests, scripts, and Vitest configuration; put declaration maps, source maps, `rootDir: "src"`, and `outDir: "dist"` in `tsconfig.build.json`. Configure Vitest's Node environment and an inline Babel transform for `tests/**/*.test.ts` and `tests/**/*.test.tsx`; add real scaffold, recursive-build, publication-guard, and TSX transform tests.
 
 - [ ] **Step 3: Add deterministic build scripts**
 
-Make `clean-dist.mjs` remove `dist` recursively. Make `build-tui.mjs` call Babel with:
+Make `clean-dist.mjs` remove `dist` recursively. Run `tsc -p tsconfig.build.json` to emit every `.ts` runtime module and all declarations, then make `build-tui.mjs` recursively call Babel for every `.tsx` source with:
 
 ```js
 presets: [
@@ -73,7 +81,7 @@ presets: [
 ]
 ```
 
-Emit `dist/tui.js` and `dist/tui.js.map`. If `src/tui.tsx` is absent, fail with a message that names the missing source and Task 10.
+Emit matching `.js` and `.js.map` paths for every TSX module, remove the intermediate `.jsx` artifacts emitted by TypeScript, and preserve `.js` imports so collector and service modules resolve in `dist`. If `src/tui.tsx` is absent, fail with a message that names the missing source and Task 10. Make `verify-package.mjs` reject a pack when either configured `./tui` target is absent.
 
 - [ ] **Step 4: Install and verify**
 
@@ -84,7 +92,10 @@ Run: `pnpm typecheck`
 Expected: exit 0.
 
 Run: `pnpm test`
-Expected: exit 0 with no test files found.
+Expected: scaffold, recursive TSX build, package guard, and OpenTUI Solid transform tests pass.
+
+Run: `pnpm audit`
+Expected: no known vulnerabilities; constrained pnpm overrides replace the vulnerable transitive `brace-expansion` and `@babel/core` versions.
 
 - [ ] **Step 5: Commit the scaffold**
 
@@ -428,7 +439,7 @@ Create the five collectors with shared HTTP/cache/runtime dependencies, pass the
 - [ ] **Step 5: Verify transformed output**
 
 Run: `pnpm vitest run tests/tui && pnpm typecheck && pnpm build`
-Expected: tests pass; Babel emits `dist/tui.js` and its map; TypeScript emits declarations including `dist/tui.d.ts`.
+Expected: tests pass; TypeScript emits every runtime `.ts` module and all declarations; Babel replaces every TypeScript `.jsx` artifact with a matching Solid universal `.js` module and source map, including `dist/tui.js` and `dist/tui.d.ts`.
 
 - [ ] **Step 6: Commit the TUI**
 
@@ -451,14 +462,14 @@ Document pnpm/npm installation, the `opencode-quota-tracker/tui` entry, `/quota`
 
 - [ ] **Step 2: Document runtime and privacy constraints**
 
-State Node 22 and OpenCode 1.18 minimums, explain automatic `bun:sqlite` versus `node:sqlite` selection, and state that no OAuth/Admin secret, historical snapshot, or plugin-owned database is persisted.
+State Node 22.12.0 and OpenCode 1.18 minimums, explain automatic `bun:sqlite` versus `node:sqlite` selection, and state that no OAuth/Admin secret, historical snapshot, or plugin-owned database is persisted.
 
 - [ ] **Step 3: Run the complete verification suite**
 
 Run: `pnpm check`
 Expected: typecheck, all Vitest tests, and production build pass.
 
-Run: `pnpm pack --dry-run`
+Run: `npm pack --dry-run`
 Expected: the package contains `dist/`, `README.md`, `LICENSE`, and package metadata, with no source tests, credentials, fixture data, coverage, or local database.
 
 - [ ] **Step 4: Inspect the built entry**
