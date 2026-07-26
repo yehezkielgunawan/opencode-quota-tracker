@@ -10,21 +10,57 @@ export type MetricAuthority = "authoritative" | "provider_reported" | "local_rec
 
 export type MetricAcquisition = "official_api" | "consumer_api" | "local_database"
 
-export interface QuotaMetric {
+interface QuotaMetricBase {
   readonly provider: ProviderId
   readonly accountKind: AccountKind
-  readonly kind: MetricKind
   readonly label: string
-  readonly used?: number
-  readonly remaining?: number
-  readonly limit?: number
-  readonly unit: MetricUnit
   readonly resetsAt?: Date
   readonly authority: MetricAuthority
   readonly acquisition: MetricAcquisition
   readonly fetchedAt: Date
   readonly warning?: string
 }
+
+type AllowanceValues =
+  | {
+      readonly used: number
+      readonly remaining?: number
+      readonly limit?: number
+    }
+  | {
+      readonly used?: number
+      readonly remaining: number
+      readonly limit?: number
+    }
+  | {
+      readonly used?: number
+      readonly remaining?: number
+      readonly limit: number
+    }
+
+export type AllowanceWindowMetric = QuotaMetricBase &
+  AllowanceValues & {
+    readonly kind: "allowance_window"
+    readonly unit: "percent"
+  }
+
+export interface TokenUsageMetric extends QuotaMetricBase {
+  readonly kind: "token_usage"
+  readonly unit: "tokens"
+  readonly used: number
+  readonly remaining?: number
+  readonly limit?: number
+}
+
+export interface CostMetric extends QuotaMetricBase {
+  readonly kind: "cost"
+  readonly unit: "usd"
+  readonly used: number
+  readonly remaining?: number
+  readonly limit?: number
+}
+
+export type QuotaMetric = AllowanceWindowMetric | TokenUsageMetric | CostMetric
 
 export type CollectorState =
   | "ok"
@@ -60,6 +96,7 @@ type CollectorMetricResult = CollectorResultBase &
 type CollectorFailureResult = CollectorResultBase & {
   readonly state: Exclude<CollectorState, "ok" | "stale">
   readonly message: string
+  readonly metrics?: never
 }
 
 export type CollectorResult = CollectorMetricResult | CollectorFailureResult
@@ -74,6 +111,62 @@ export interface QuotaCollector {
 export interface QuotaReport {
   readonly generatedAt: Date
   readonly results: readonly CollectorResult[]
+}
+
+type AllowanceMetricInput = QuotaMetricBase & AllowanceValues
+
+interface UsageMetricInput extends QuotaMetricBase {
+  readonly used: number
+  readonly remaining?: number
+  readonly limit?: number
+}
+
+const numericFields = ["used", "remaining", "limit"] as const
+
+function assertPercentage(name: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    throw new TypeError(`${name} must be a finite percentage between 0 and 100`)
+  }
+}
+
+function assertNonNegative(name: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new TypeError(`${name} must be a finite non-negative number`)
+  }
+}
+
+function validateUsageInput(input: UsageMetricInput): void {
+  assertNonNegative("used", input.used)
+
+  for (const field of ["remaining", "limit"] as const) {
+    const value = input[field]
+    if (value !== undefined) assertNonNegative(field, value)
+  }
+}
+
+export function createAllowanceMetric(input: AllowanceMetricInput): AllowanceWindowMetric {
+  if (numericFields.every((field) => input[field] === undefined)) {
+    throw new TypeError("Allowance metrics require used, remaining, or limit")
+  }
+
+  for (const field of numericFields) {
+    const value = input[field]
+    if (value !== undefined) assertPercentage(field, value)
+  }
+
+  return { ...input, kind: "allowance_window", unit: "percent" }
+}
+
+export function createTokenUsageMetric(input: UsageMetricInput): TokenUsageMetric {
+  validateUsageInput(input)
+
+  return { ...input, kind: "token_usage", unit: "tokens" }
+}
+
+export function createCostMetric(input: UsageMetricInput): CostMetric {
+  validateUsageInput(input)
+
+  return { ...input, kind: "cost", unit: "usd" }
 }
 
 export function clampPercent(value: number): number {

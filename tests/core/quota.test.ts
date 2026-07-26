@@ -1,6 +1,12 @@
 import { describe, expect, expectTypeOf, it } from "vitest"
 
-import { clampPercent, remainingFromUsed } from "../../src/core/quota"
+import {
+  clampPercent,
+  createAllowanceMetric,
+  createCostMetric,
+  createTokenUsageMetric,
+  remainingFromUsed,
+} from "../../src/core/quota"
 import type {
   AccountKind,
   CollectorResult,
@@ -46,6 +52,92 @@ describe("remainingFromUsed", () => {
     [110, 0],
   ])("converts used percentage %s to remaining percentage %s", (used, expected) => {
     expect(remainingFromUsed(used)).toBe(expected)
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "rejects a non-finite used percentage: %s",
+    (used) => {
+      expect(() => remainingFromUsed(used)).toThrow(TypeError)
+    },
+  )
+})
+
+describe("quota metric constructors", () => {
+  const metricBase = {
+    provider: "openai" as const,
+    accountKind: "subscription" as const,
+    label: "Current quota",
+    authority: "provider_reported" as const,
+    acquisition: "consumer_api" as const,
+    fetchedAt: new Date("2026-07-26T12:00:00.000Z"),
+  }
+
+  it("creates allowance metrics with a fixed percent discriminator", () => {
+    expect(createAllowanceMetric({ ...metricBase, used: 25, remaining: 75 })).toEqual({
+      ...metricBase,
+      used: 25,
+      remaining: 75,
+      kind: "allowance_window",
+      unit: "percent",
+    })
+  })
+
+  it("rejects an allowance metric without a numeric value", () => {
+    const input = metricBase as unknown as Parameters<typeof createAllowanceMetric>[0]
+
+    expect(() => createAllowanceMetric(input)).toThrow(TypeError)
+  })
+
+  it.each([
+    ["used", Number.NaN],
+    ["remaining", Number.POSITIVE_INFINITY],
+    ["limit", -1],
+    ["used", 100.1],
+  ] as const)("rejects invalid allowance %s value %s", (field, value) => {
+    const input = { ...metricBase, [field]: value } as unknown as Parameters<
+      typeof createAllowanceMetric
+    >[0]
+
+    expect(() => createAllowanceMetric(input)).toThrow(TypeError)
+  })
+
+  it("accepts a provider percentage only after explicit clamping", () => {
+    expect(createAllowanceMetric({ ...metricBase, used: clampPercent(112) }).used).toBe(100)
+  })
+
+  it("creates token and cost metrics with fixed discriminators", () => {
+    expect(createTokenUsageMetric({ ...metricBase, used: 1_000 })).toMatchObject({
+      kind: "token_usage",
+      unit: "tokens",
+      used: 1_000,
+    })
+    expect(createCostMetric({ ...metricBase, used: 12.5 })).toMatchObject({
+      kind: "cost",
+      unit: "usd",
+      used: 12.5,
+    })
+  })
+
+  it.each([createTokenUsageMetric, createCostMetric])(
+    "rejects a usage metric without a used amount",
+    (createMetric) => {
+      const input = metricBase as unknown as Parameters<typeof createMetric>[0]
+
+      expect(() => createMetric(input)).toThrow(TypeError)
+    },
+  )
+
+  it.each([
+    [createTokenUsageMetric, "used", -1],
+    [createTokenUsageMetric, "remaining", Number.NaN],
+    [createTokenUsageMetric, "limit", Number.POSITIVE_INFINITY],
+    [createCostMetric, "used", Number.NEGATIVE_INFINITY],
+    [createCostMetric, "remaining", -0.01],
+    [createCostMetric, "limit", Number.NaN],
+  ] as const)("rejects invalid usage values", (createMetric, field, value) => {
+    const input = { ...metricBase, used: 1, [field]: value }
+
+    expect(() => createMetric(input)).toThrow(TypeError)
   })
 })
 
@@ -140,11 +232,52 @@ describe("quota domain model", () => {
       "openai-subscription",
     ])
 
-    const invalidFailure: CollectorResult = {
-      ...failure,
-      // @ts-expect-error Failed results must not expose synthetic metrics.
-      metrics: [],
+  })
+
+  it("rejects structurally invalid metric and result variables", () => {
+    const sharedMetric = {
+      provider: "openai" as const,
+      accountKind: "subscription" as const,
+      label: "Invalid metric",
+      authority: "provider_reported" as const,
+      acquisition: "consumer_api" as const,
+      fetchedAt: new Date("2026-07-26T12:00:00.000Z"),
     }
-    void invalidFailure
+    const mismatchedKindAndUnit = {
+      ...sharedMetric,
+      kind: "allowance_window" as const,
+      unit: "tokens" as const,
+      used: 10,
+    }
+    const allowanceWithoutValue = {
+      ...sharedMetric,
+      kind: "allowance_window" as const,
+      unit: "percent" as const,
+    }
+    const tokenUsageWithoutUsed = {
+      ...sharedMetric,
+      kind: "token_usage" as const,
+      unit: "tokens" as const,
+    }
+    const failureWithMetrics = {
+      collectorId: "openai-subscription",
+      provider: "openai" as const,
+      accountKind: "subscription" as const,
+      state: "timeout" as const,
+      fetchedAt: new Date("2026-07-26T12:00:00.000Z"),
+      message: "Collector timed out",
+      metrics: [] as const,
+    }
+
+    // @ts-expect-error Metric kind and unit must be paired.
+    const invalidPair: QuotaMetric = mismatchedKindAndUnit
+    // @ts-expect-error Allowance metrics must contain at least one numeric value.
+    const invalidAllowance: QuotaMetric = allowanceWithoutValue
+    // @ts-expect-error Token usage metrics require a used amount.
+    const invalidTokenUsage: QuotaMetric = tokenUsageWithoutUsed
+    // @ts-expect-error Failure results cannot contain metrics, including through variables.
+    const invalidFailure: CollectorResult = failureWithMetrics
+
+    void [invalidPair, invalidAllowance, invalidTokenUsage, invalidFailure]
   })
 })
