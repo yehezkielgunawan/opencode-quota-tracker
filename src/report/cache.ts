@@ -49,7 +49,14 @@ export class SuccessCache {
     prior: SuccessfulOutcome | undefined,
     refresh: () => Promise<CollectorOutcome>,
   ): Promise<CollectorOutcome> {
-    const outcome = await refresh()
+    let outcome: CollectorOutcome
+    try {
+      outcome = await refresh()
+    } catch (error) {
+      if (!prior) throw error
+      return this.#stale(prior)
+    }
+
     if (outcome.state === "ok") {
       this.#entries.set(key, { value: outcome, storedAt: this.#now() })
       return outcome
@@ -61,14 +68,18 @@ export class SuccessCache {
         outcome.state === "rate_limited" ||
         outcome.state === "timeout")
     ) {
-      return {
-        ...prior,
-        state: "stale",
-        message: "Cached quota data is stale.",
-        warning: "Refresh failed; showing the last successful result.",
-      }
+      return this.#stale(prior)
     }
 
     return outcome
+  }
+
+  #stale(prior: SuccessfulOutcome): CollectorOutcome {
+    return {
+      ...prior,
+      state: "stale",
+      message: "Cached quota data is stale.",
+      warning: "Refresh failed; showing the last successful result.",
+    }
   }
 }

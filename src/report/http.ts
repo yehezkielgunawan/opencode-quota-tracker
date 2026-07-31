@@ -15,6 +15,7 @@ export interface RequestJsonOptions<T> {
   readonly headers?: Readonly<Record<string, string>>
   readonly fetch?: typeof globalThis.fetch
   readonly timeoutMs?: number
+  readonly signal?: AbortSignal
   readonly parse?: (value: unknown) => T
 }
 
@@ -49,8 +50,14 @@ export async function requestJson<T = unknown>(
     return failure("unavailable", "Request URL is not permitted.")
   }
 
+  const parentSignal = options.signal
+  if (parentSignal?.aborted) return failure("unavailable")
+
   const controller = new AbortController()
   const timeoutFailure = Symbol("request timeout")
+  const parentAbortFailure = Symbol("parent abort")
+  let parentAborted = false
+  let onParentAbort: (() => void) | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(() => {
@@ -58,6 +65,16 @@ export async function requestJson<T = unknown>(
       reject(timeoutFailure)
     }, timeoutMs)
   })
+  const cancellation = parentSignal
+    ? new Promise<never>((_resolve, reject) => {
+        onParentAbort = () => {
+          parentAborted = true
+          controller.abort()
+          reject(parentAbortFailure)
+        }
+        parentSignal.addEventListener("abort", onParentAbort, { once: true })
+      })
+    : undefined
 
   try {
     const operation = async (): Promise<RequestJsonResult<T>> => {
@@ -77,12 +94,17 @@ export async function requestJson<T = unknown>(
         const value: unknown = await response.json()
         return { ok: true, data: options.parse ? options.parse(value) : (value as T) }
       } catch {
+        if (parentAborted) throw parentAbortFailure
+        if (controller.signal.aborted) throw timeoutFailure
         return failure("unsupported_response")
       }
     }
 
-    return await Promise.race([operation(), deadline])
+    return await Promise.race(
+      cancellation ? [operation(), deadline, cancellation] : [operation(), deadline],
+    )
   } catch (error) {
+    if (parentAborted || error === parentAbortFailure) return failure("unavailable")
     if (
       error === timeoutFailure ||
       controller.signal.aborted ||
@@ -93,5 +115,6 @@ export async function requestJson<T = unknown>(
     return failure("unavailable")
   } finally {
     if (timeout !== undefined) clearTimeout(timeout)
+    if (onParentAbort) parentSignal?.removeEventListener("abort", onParentAbort)
   }
 }

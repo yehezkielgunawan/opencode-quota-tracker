@@ -93,6 +93,34 @@ describe("SuccessCache", () => {
     })
   })
 
+  it("returns the prior success as stale when refresh rejects", async () => {
+    let now = 0
+    const cache = new SuccessCache({ now: () => now })
+    const refresh = vi
+      .fn<() => Promise<CollectorOutcome>>()
+      .mockResolvedValueOnce(success())
+      .mockRejectedValueOnce(new Error("Bearer refresh-secret"))
+
+    await cache.get("account", refresh)
+    now = 300_000
+    const result = await cache.get("account", refresh)
+
+    expect(result).toEqual({
+      ...success(),
+      state: "stale",
+      message: "Cached quota data is stale.",
+      warning: "Refresh failed; showing the last successful result.",
+    })
+    expect(JSON.stringify(result)).not.toMatch(/Bearer|refresh-secret/)
+  })
+
+  it("preserves refresh rejection when no prior success exists", async () => {
+    const cache = new SuccessCache({ now: () => 0 })
+    const error = new Error("refresh failed")
+
+    await expect(cache.get("account", async () => Promise.reject(error))).rejects.toBe(error)
+  })
+
   it("does not cache unsuccessful outcomes as successful data", async () => {
     const cache = new SuccessCache({ now: () => 0 })
     const refresh = vi

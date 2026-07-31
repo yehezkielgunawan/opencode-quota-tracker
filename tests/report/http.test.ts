@@ -171,6 +171,90 @@ describe("requestJson", () => {
     expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
   })
 
+  it("does not fetch when the parent signal is already aborted", async () => {
+    const controller = new AbortController()
+    controller.abort(new Error("parent-secret"))
+    const fetch = vi.fn<typeof globalThis.fetch>()
+
+    const result = await requestJson({
+      url: "https://api.example.com/quota",
+      allowedHosts: ["api.example.com"],
+      signal: controller.signal,
+      fetch,
+    })
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      ok: false,
+      state: "unavailable",
+      message: "Request is unavailable.",
+    })
+    expect(JSON.stringify(result)).not.toContain("parent-secret")
+  })
+
+  it("aborts a hanging fetch when the parent signal aborts", async () => {
+    const parent = new AbortController()
+    let requestSignal: AbortSignal | undefined
+    let rejectFetch!: (reason: unknown) => void
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation((_input, init) => {
+      requestSignal = init?.signal ?? undefined
+      return new Promise((_resolve, reject) => {
+        rejectFetch = reject
+      })
+    })
+    const pending = requestJson({
+      url: "https://api.example.com/quota",
+      allowedHosts: ["api.example.com"],
+      signal: parent.signal,
+      fetch,
+    })
+
+    parent.abort(new Error("parent-secret"))
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      state: "unavailable",
+      message: "Request is unavailable.",
+    })
+    expect(requestSignal?.aborted).toBe(true)
+    rejectFetch(new Error("late-secret"))
+    await Promise.resolve()
+  })
+
+  it("aborts hanging body parsing when the parent signal aborts", async () => {
+    const parent = new AbortController()
+    let requestSignal: AbortSignal | undefined
+    let rejectBody!: (reason: unknown) => void
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation((_input, init) => {
+      requestSignal = init?.signal ?? undefined
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          new Promise<unknown>((_resolve, reject) => {
+            rejectBody = reject
+          }),
+      } as Response)
+    })
+    const pending = requestJson({
+      url: "https://api.example.com/quota",
+      allowedHosts: ["api.example.com"],
+      signal: parent.signal,
+      fetch,
+    })
+    await Promise.resolve()
+    parent.abort(new Error("parent-secret"))
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      state: "unavailable",
+      message: "Request is unavailable.",
+    })
+    expect(requestSignal?.aborted).toBe(true)
+    rejectBody(new Error("late-body-secret"))
+    await Promise.resolve()
+  })
+
   it("rejects redirects without leaking request or target details", async () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()
