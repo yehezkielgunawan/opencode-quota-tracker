@@ -119,4 +119,68 @@ describe("QuotaReportService", () => {
       ["local", "opencode", ["z-local"]],
     ])
   })
+
+  it("keeps result identities stable when the caller mutates its collector array", async () => {
+    let rejectFirst!: (reason: unknown) => void
+    let resolveSecond!: (value: CollectorOutcome) => void
+    const collectors: Collector[] = [
+      collector(
+        "first",
+        "openai",
+        "subscription",
+        () => new Promise((_resolve, reject) => (rejectFirst = reject)),
+      ),
+      collector(
+        "second",
+        "anthropic",
+        "api_organization",
+        () => new Promise((resolve) => (resolveSecond = resolve)),
+      ),
+    ]
+    const service = new QuotaReportService({ collectors, now: () => now })
+
+    const pending = service.generate()
+    collectors.splice(0, collectors.length)
+    rejectFirst(new Error("secret failure"))
+    resolveSecond(outcome("second", "anthropic", "api_organization"))
+
+    const report = await pending
+    expect(
+      report.sections.flatMap((section) =>
+        section.outcomes.map(({ collectorId, state }) => [collectorId, state]),
+      ),
+    ).toEqual([
+      ["first", "unavailable"],
+      ["second", "ok"],
+    ])
+  })
+
+  it("aborts underlying collector work when its timeout expires", async () => {
+    vi.useFakeTimers()
+    let aborted = false
+    const hanging = collector("hanging", "opencode", "local", (signal) => {
+      return new Promise((_resolve) => {
+        signal.addEventListener("abort", () => {
+          aborted = true
+        })
+      })
+    })
+    const service = new QuotaReportService({ collectors: [hanging], now: () => now })
+
+    const pending = service.generate()
+    await vi.advanceTimersByTimeAsync(5_000)
+    const report = await pending
+
+    expect(aborted).toBe(true)
+    expect(report.sections[0]?.outcomes[0]).toMatchObject({
+      collectorId: "hanging",
+      state: "timeout",
+    })
+  })
+
+  it.each([0, -1, Number.NaN])("rejects invalid timeout %s", (timeoutMs) => {
+    expect(
+      () => new QuotaReportService({ collectors: [], now: () => now, timeoutMs }),
+    ).toThrow("timeoutMs must be a finite positive number")
+  })
 })

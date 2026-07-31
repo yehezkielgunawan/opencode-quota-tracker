@@ -110,7 +110,7 @@ export interface Collector {
   readonly id: string
   readonly provider: Provider
   readonly accountKind: AccountKind
-  collect(): Promise<CollectorOutcome>
+  collect(signal: AbortSignal): Promise<CollectorOutcome>
 }
 
 export type QuotaCollector = Collector

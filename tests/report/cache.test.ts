@@ -28,6 +28,12 @@ function failure(state: "unavailable" | "not_configured"): CollectorOutcome {
 }
 
 describe("SuccessCache", () => {
+  it.each([-1, Number.NaN])("rejects invalid fresh TTL %s", (freshForMs) => {
+    expect(() => new SuccessCache({ now: () => 0, freshForMs })).toThrow(
+      "freshForMs must be a finite non-negative number",
+    )
+  })
+
   it("returns a successful value without refreshing for five minutes", async () => {
     let now = 0
     const cache = new SuccessCache({ now: () => now })

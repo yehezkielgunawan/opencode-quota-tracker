@@ -7,18 +7,26 @@ export interface SuccessCacheOptions {
   readonly freshForMs?: number
 }
 
-export class SuccessCache<T extends SuccessfulOutcome = SuccessfulOutcome> {
-  readonly #entries = new Map<string, { readonly value: T; readonly storedAt: number }>()
-  readonly #inFlight = new Map<string, Promise<T | CollectorOutcome>>()
+export class SuccessCache {
+  readonly #entries = new Map<
+    string,
+    { readonly value: SuccessfulOutcome; readonly storedAt: number }
+  >()
+  readonly #inFlight = new Map<string, Promise<CollectorOutcome>>()
   readonly #now: () => number
   readonly #freshForMs: number
 
   constructor(options: SuccessCacheOptions) {
+    const freshForMs = options.freshForMs ?? 300_000
+    if (!Number.isFinite(freshForMs) || freshForMs < 0) {
+      throw new TypeError("freshForMs must be a finite non-negative number")
+    }
+
     this.#now = options.now
-    this.#freshForMs = options.freshForMs ?? 300_000
+    this.#freshForMs = freshForMs
   }
 
-  get(key: string, refresh: () => Promise<T | CollectorOutcome>): Promise<T | CollectorOutcome> {
+  get(key: string, refresh: () => Promise<CollectorOutcome>): Promise<CollectorOutcome> {
     const entry = this.#entries.get(key)
     if (entry && this.#now() - entry.storedAt < this.#freshForMs) {
       return Promise.resolve(entry.value)
@@ -38,14 +46,13 @@ export class SuccessCache<T extends SuccessfulOutcome = SuccessfulOutcome> {
 
   async #refresh(
     key: string,
-    prior: T | undefined,
-    refresh: () => Promise<T | CollectorOutcome>,
-  ): Promise<T | CollectorOutcome> {
+    prior: SuccessfulOutcome | undefined,
+    refresh: () => Promise<CollectorOutcome>,
+  ): Promise<CollectorOutcome> {
     const outcome = await refresh()
     if (outcome.state === "ok") {
-      const value = outcome as T
-      this.#entries.set(key, { value, storedAt: this.#now() })
-      return value
+      this.#entries.set(key, { value: outcome, storedAt: this.#now() })
+      return outcome
     }
 
     if (

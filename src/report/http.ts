@@ -33,6 +33,11 @@ function failure(state: HttpFailureState, message = failureMessages[state]): Req
 export async function requestJson<T = unknown>(
   options: RequestJsonOptions<T>,
 ): Promise<RequestJsonResult<T>> {
+  const timeoutMs = options.timeoutMs ?? 5_000
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new TypeError("timeoutMs must be a finite positive number")
+  }
+
   let url: URL
   try {
     url = new URL(options.url)
@@ -51,30 +56,32 @@ export async function requestJson<T = unknown>(
     timeout = setTimeout(() => {
       controller.abort()
       reject(timeoutFailure)
-    }, options.timeoutMs ?? 5_000)
+    }, timeoutMs)
   })
 
   try {
-    const response = await Promise.race([
-      (options.fetch ?? globalThis.fetch)(url, {
+    const operation = async (): Promise<RequestJsonResult<T>> => {
+      const response = await (options.fetch ?? globalThis.fetch)(url, {
         ...(options.headers ? { headers: options.headers } : {}),
+        redirect: "error",
         signal: controller.signal,
-      }),
-      deadline,
-    ])
+      })
 
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) return failure("unauthorized")
-      if (response.status === 429) return failure("rate_limited")
-      return failure("unavailable")
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) return failure("unauthorized")
+        if (response.status === 429) return failure("rate_limited")
+        return failure("unavailable")
+      }
+
+      try {
+        const value: unknown = await response.json()
+        return { ok: true, data: options.parse ? options.parse(value) : (value as T) }
+      } catch {
+        return failure("unsupported_response")
+      }
     }
 
-    try {
-      const value: unknown = await response.json()
-      return { ok: true, data: options.parse ? options.parse(value) : (value as T) }
-    } catch {
-      return failure("unsupported_response")
-    }
+    return await Promise.race([operation(), deadline])
   } catch (error) {
     if (
       error === timeoutFailure ||

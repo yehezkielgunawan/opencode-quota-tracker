@@ -31,9 +31,14 @@ export class QuotaReportService {
   readonly #timeoutMs: number
 
   constructor(options: QuotaReportServiceOptions) {
-    this.#collectors = options.collectors
+    const timeoutMs = options.timeoutMs ?? 5_000
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new TypeError("timeoutMs must be a finite positive number")
+    }
+
+    this.#collectors = [...options.collectors]
     this.#now = options.now
-    this.#timeoutMs = options.timeoutMs ?? 5_000
+    this.#timeoutMs = timeoutMs
   }
 
   async generate(): Promise<QuotaReport> {
@@ -76,13 +81,15 @@ export class QuotaReportService {
 
   #collectBounded(collector: Collector): Promise<CollectorOutcome> {
     return new Promise((resolve, reject) => {
+      const controller = new AbortController()
       const timeout = setTimeout(() => {
+        controller.abort()
         resolve(this.#failure(collector, "timeout", "Collector timed out."))
       }, this.#timeoutMs)
 
       let collection: Promise<CollectorOutcome>
       try {
-        collection = collector.collect()
+        collection = collector.collect(controller.signal)
       } catch (error) {
         clearTimeout(timeout)
         reject(error)

@@ -147,6 +147,62 @@ describe("requestJson", () => {
     await expect(pending).resolves.toMatchObject({ ok: false, state: "timeout" })
   })
 
+  it("bounds response JSON consumption with the same timeout", async () => {
+    vi.useFakeTimers()
+    const json = vi.fn(() => new Promise<unknown>(() => {}))
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json,
+    } as unknown as Response)
+
+    const pending = requestJson({
+      url: "https://api.example.com/quota",
+      allowedHosts: ["api.example.com"],
+      fetch,
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      state: "timeout",
+      message: "Request timed out.",
+    })
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+  })
+
+  it("rejects redirects without leaking request or target details", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockRejectedValue(new Error("redirected to https://evil.example/body-secret"))
+
+    const result = await requestJson({
+      url: "https://api.example.com/quota",
+      allowedHosts: ["api.example.com"],
+      headers: { authorization: "Bearer request-secret" },
+      fetch,
+    })
+
+    expect(fetch.mock.calls[0]?.[1]?.redirect).toBe("error")
+    expect(result).toEqual({
+      ok: false,
+      state: "unavailable",
+      message: "Request is unavailable.",
+    })
+    expect(JSON.stringify(result)).not.toMatch(/evil\.example|body-secret|request-secret|Bearer/)
+  })
+
+  it.each([0, -1, Number.NaN])("rejects invalid timeout %s", async (timeoutMs) => {
+    await expect(
+      requestJson({
+        url: "https://api.example.com/quota",
+        allowedHosts: ["api.example.com"],
+        timeoutMs,
+        fetch: vi.fn<typeof globalThis.fetch>(),
+      }),
+    ).rejects.toThrow("timeoutMs must be a finite positive number")
+  })
+
   it("maps other network failures to unavailable without exception details", async () => {
     const result = await requestJson({
       url: "https://api.example.com/quota",

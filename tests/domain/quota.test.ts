@@ -271,7 +271,7 @@ describe("quota domain model", () => {
       },
     }
 
-    const collected = await collector.collect()
+    const collected = await collector.collect(new AbortController().signal)
     expect(collected.state).toBe("ok")
     if (collected.state !== "ok") throw new Error("Expected an ok collector result")
     expect(collected.metrics).toEqual([metric])
