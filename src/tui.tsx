@@ -1,4 +1,4 @@
-import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 
 import { AnthropicApiCollector } from "./collectors/anthropic-admin.js"
 import { AnthropicSubscriptionCollector } from "./collectors/anthropic-subscription.js"
@@ -43,10 +43,12 @@ function registerQuotaCommand(api: TuiPluginApi, open: () => Promise<void>): () 
     priority: 100,
     commands: [
       {
-        name: "quota",
+        name: "quota.show",
         title: "Show quota report",
-        description: "Show provider and local quota usage without submitting a prompt.",
-        slash: { name: "quota" },
+        category: "Plugin",
+        namespace: "palette",
+        desc: "Show provider and local quota usage without submitting a prompt.",
+        slashName: "quota",
         run: () => open(),
       },
     ],
@@ -88,4 +90,7 @@ export function createQuotaTuiPlugin(options: QuotaTuiPluginOptions = {}): TuiPl
   }
 }
 
-export default createQuotaTuiPlugin()
+const tui: TuiPlugin = createQuotaTuiPlugin()
+const plugin: TuiPluginModule = { tui }
+
+export default plugin

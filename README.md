@@ -13,17 +13,17 @@
 The OpenCode CLI can install the plugin and update your global config directly:
 
 ```bash
-opencode plugin opencode-quota-tracker/tui --global
+opencode plugin opencode-quota-tracker --global
 ```
 
 Use the project config instead when the plugin should apply only to one repository:
 
-Add the TUI export to the `plugin` array in either your project `opencode.json` or your global `~/.config/opencode/opencode.json`:
+Add the package to the `plugin` array in either your project `.opencode/tui.json` or your global `~/.config/opencode/tui.json`:
 
 ```json
 {
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-quota-tracker/tui"]
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": ["opencode-quota-tracker"]
 }
 ```
 
@@ -91,7 +91,7 @@ The cache lasts five minutes and exists only in the running OpenCode process. Ru
 
 ## Troubleshooting
 
-**`/quota` is not discoverable:** Confirm the exact `opencode-quota-tracker/tui` value is in the `plugin` array, then restart OpenCode. Check that the package name is not nested under another config key.
+**`/quota` is not discoverable:** Confirm the exact `opencode-quota-tracker` value is in the `plugin` array, then restart OpenCode. OpenCode selects the package's `./tui` export automatically. Check that the package name is not nested under another config key.
 
 **An Admin block says `NOT_CONFIGURED`:** Export the matching Admin variable in the environment that launches OpenCode. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` do not enable Admin accounting.
 

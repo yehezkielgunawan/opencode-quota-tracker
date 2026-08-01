@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { QuotaReport } from "../../src/domain/quota.js"
-import { createQuotaTuiPlugin } from "../../src/tui.js"
+import plugin, { createQuotaTuiPlugin } from "../../src/tui.js"
 
 const NOW = new Date("2026-07-31T12:00:00.000Z")
 
@@ -34,7 +34,7 @@ function apiFixture() {
       lifecycle: { onDispose },
     },
     get command() {
-      return registeredLayer?.commands?.find((value: { name: string }) => value.name === "quota")
+      return registeredLayer?.commands?.find((value: { name: string }) => value.name === "quota.show")
     },
     get replace() {
       return replace
@@ -59,6 +59,10 @@ function apiFixture() {
 }
 
 describe("quota TUI plugin", () => {
+  it("exports the target-exclusive TUI module shape OpenCode loads", () => {
+    expect(plugin as unknown).toMatchObject({ tui: expect.any(Function) })
+  })
+
   it("registers one deterministic /quota command and opens a local loading dialog", async () => {
     const fixture = apiFixture()
     const generate = vi.fn(async () => report())
@@ -67,7 +71,13 @@ describe("quota TUI plugin", () => {
 
     expect(fixture.registerLayer).toHaveBeenCalledTimes(1)
     expect(fixture.command).toBeDefined()
-    expect(fixture.command).toMatchObject({ name: "quota", description: expect.any(String) })
+    expect(fixture.command).toMatchObject({
+      name: "quota.show",
+      title: "Show quota report",
+      namespace: "palette",
+      desc: expect.any(String),
+      slashName: "quota",
+    })
 
     await fixture.command.run({} as never)
 

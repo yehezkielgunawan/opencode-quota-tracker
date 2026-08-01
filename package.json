@@ -1,6 +1,6 @@
 {
   "name": "opencode-quota-tracker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cross-provider subscription, API, and local usage accounting for the OpenCode TUI",
   "private": false,
   "type": "module",
