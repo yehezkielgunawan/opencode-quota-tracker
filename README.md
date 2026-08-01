@@ -91,7 +91,11 @@ The cache lasts five minutes and exists only in the running OpenCode process. Ru
 
 ## Troubleshooting
 
-**`/quota` is not discoverable:** Confirm the exact `opencode-quota-tracker` value is in the `plugin` array, then restart OpenCode. OpenCode selects the package's `./tui` export automatically. Check that the package name is not nested under another config key.
+**`/quota` is not discoverable:** Confirm the exact `opencode-quota-tracker` value is in the `plugin` array, then restart OpenCode. OpenCode selects the package's `./tui` export automatically. Check that the package name is not nested under another config key. If an older release is cached, refresh the current package explicitly:
+
+```bash
+opencode plugin opencode-quota-tracker@0.1.1 --global --force
+```
 
 **An Admin block says `NOT_CONFIGURED`:** Export the matching Admin variable in the environment that launches OpenCode. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` do not enable Admin accounting.
 
