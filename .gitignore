@@ -4,3 +4,5 @@ dist/
 coverage/
 *.tgz
 .DS_Store
+
+docs/
