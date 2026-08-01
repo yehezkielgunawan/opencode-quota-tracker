@@ -1,8 +1,13 @@
 # OpenCode Cross-Provider Quota Tracker Design
 
 Date: 2026-07-26
-Status: Approved
+Status: Implemented for the v0.1.0 package release
 Working package name: `opencode-quota-tracker`
+
+The implementation is available through the `opencode-quota-tracker/tui`
+package export. Install it through OpenCode's npm plugin configuration, then
+run `/quota` in the TUI. The end-user setup, credential sources, report layout,
+privacy boundaries, and troubleshooting steps are documented in `README.md`.
 
 ## Summary
 

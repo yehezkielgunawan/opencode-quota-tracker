@@ -1,9 +1,24 @@
 {
   "name": "opencode-quota-tracker",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Cross-provider subscription, API, and local usage accounting for the OpenCode TUI",
   "private": false,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yehezkielgunawan/opencode-quota-tracker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yehezkielgunawan/opencode-quota-tracker/issues"
+  },
+  "homepage": "https://github.com/yehezkielgunawan/opencode-quota-tracker#readme",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "quota",
+    "usage",
+    "tui"
+  ],
   "exports": {
     "./tui": {
       "types": "./dist/tui.d.ts",
