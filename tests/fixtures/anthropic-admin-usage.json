@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-07-01T00:00:00Z",
+      "ending_at": "2026-07-02T00:00:00Z",
+      "results": [
+        {
+          "model": "claude-sonnet",
+          "uncached_input_tokens": 100,
+          "cache_creation_input_tokens": 20,
+          "cache_read_input_tokens": 10,
+          "output_tokens": 50,
+          "service_tier": "standard"
+        }
+      ]
+    }
+  ],
+  "has_more": true,
+  "next_page": "usage-page-2"
+}

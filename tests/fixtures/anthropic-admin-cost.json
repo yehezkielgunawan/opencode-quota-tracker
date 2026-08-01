@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-07-01T00:00:00Z",
+      "ending_at": "2026-07-02T00:00:00Z",
+      "results": [
+        {
+          "amount": "125",
+          "currency": "USD",
+          "cost_type": "tokens",
+          "description": "Claude Sonnet Usage"
+        }
+      ]
+    }
+  ],
+  "has_more": true,
+  "next_page": "cost-page-2"
+}
