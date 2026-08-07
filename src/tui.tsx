@@ -1,4 +1,5 @@
-import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
+import type { TuiPlugin, TuiPluginApi, TuiPluginModule, TuiRouteCurrent } from "@opencode-ai/plugin/tui"
+import { createSignal, onCleanup } from "solid-js"
 
 import { AnthropicApiCollector } from "./collectors/anthropic-admin.js"
 import { AnthropicSubscriptionCollector } from "./collectors/anthropic-subscription.js"
@@ -9,6 +10,8 @@ import type { Collector, QuotaReport } from "./domain/quota.js"
 import { SuccessCache } from "./report/cache.js"
 import { QuotaReportService } from "./report/service.js"
 import { ReportView } from "./tui/report-view.js"
+
+const QUOTA_ROUTE = "quota"
 
 export interface ReportGenerator {
   generate(): Promise<QuotaReport>
@@ -60,23 +63,50 @@ export function createQuotaTuiPlugin(options: QuotaTuiPluginOptions = {}): TuiPl
 
   return async (api) => {
     const service = options.service ?? createDefaultService(now)
+    const [state, setState] = createSignal<Parameters<typeof ReportView>[0]["state"]>({ status: "loading" })
     let disposed = false
     let requestId = 0
+    let previousRoute: TuiRouteCurrent = api.route.current
+
+    const close = (): void => {
+      if ("params" in previousRoute) {
+        api.route.navigate(previousRoute.name, previousRoute.params)
+        return
+      }
+      api.route.navigate(previousRoute.name)
+    }
+
+    const unregisterRoute = api.route.register([
+      {
+        name: QUOTA_ROUTE,
+        render: () => {
+          const popMode = api.mode.push(QUOTA_ROUTE)
+          onCleanup(popMode)
+          return <ReportView state={state()} theme={api.theme.current} />
+        },
+      },
+    ])
+
+    const unregisterRouteKeys = api.keymap.registerLayer({
+      mode: QUOTA_ROUTE,
+      priority: 100,
+      bindings: [{ key: "escape", cmd: close, desc: "Close quota report" }],
+    })
 
     const open = async (): Promise<void> => {
       if (disposed) return
       const currentRequest = ++requestId
-      api.ui.dialog.replace(() => <ReportView state={{ status: "loading" }} />)
+      if (api.route.current.name !== QUOTA_ROUTE) previousRoute = api.route.current
+      setState({ status: "loading" })
+      api.route.navigate(QUOTA_ROUTE)
 
       try {
         const report = await service.generate()
         if (disposed || currentRequest !== requestId) return
-        api.ui.dialog.replace(() => <ReportView state={{ status: "ready", report, now: now() }} />)
+        setState({ status: "ready", report, now: now() })
       } catch {
         if (disposed || currentRequest !== requestId) return
-        api.ui.dialog.replace(
-          () => <ReportView state={{ status: "error", message: "Quota sources could not be read." }} />,
-        )
+        setState({ status: "error", message: "Quota sources could not be read." })
       }
     }
 
@@ -84,8 +114,10 @@ export function createQuotaTuiPlugin(options: QuotaTuiPluginOptions = {}): TuiPl
     api.lifecycle.onDispose(() => {
       disposed = true
       requestId += 1
+      if (api.route.current.name === QUOTA_ROUTE) close()
       unregister()
-      api.ui.dialog.clear()
+      unregisterRouteKeys()
+      unregisterRoute()
     })
   }
 }
