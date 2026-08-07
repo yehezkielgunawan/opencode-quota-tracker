@@ -1,5 +1,9 @@
 # OpenCode Quota Tracker
 
+<p align="center">
+  <img src="./public/opencode-quota-tracker-logo.svg" alt="OpenCode Quota Tracker logo" width="240">
+</p>
+
 `opencode-quota-tracker` adds a local `/quota` command to the OpenCode TUI. It reads provider quota data and the usage already recorded by OpenCode, then shows the result in a scrollable dialog. The command does not submit a prompt or call a model.
 
 ## Requirements
