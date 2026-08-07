@@ -121,43 +121,33 @@ npm pack --dry-run
 
 ## Continuous integration
 
-Pull requests run `pnpm check` in GitHub Actions, using the Node.js and pnpm versions declared by this package. Opening, updating, or merging a pull request does not publish the package. To prevent unverified changes from reaching `main`, make the `Check` status required in the branch protection rules for the default branch.
+Pull requests run `pnpm check` in GitHub Actions, using the Node.js and pnpm versions declared by this package. Ordinary pull requests do not publish the package. To prevent unverified changes from reaching `main`, make the `Check` status required in the branch protection rules for the default branch.
 
 ## Publishing releases
 
-Publishing uses npm Trusted Publishing. GitHub Actions exchanges a short-lived OpenID Connect credential with npm, so the repository does not need an `NPM_TOKEN` secret.
+Release Please maintains the package version, changelog, GitHub tag, and GitHub Release. Publishing uses npm Trusted Publishing: GitHub Actions exchanges a short-lived OpenID Connect credential with npm, so the repository does not need an `NPM_TOKEN` secret.
 
 Configure publishing once before creating the next release:
 
-1. In the GitHub repository settings, create an environment named `npm`. No environment secret is required. You can optionally restrict deployments to tags matching `v*`.
-2. In the npm package settings for `opencode-quota-tracker`, add a GitHub Actions trusted publisher with owner `yehezkielgunawan`, repository `opencode-quota-tracker`, workflow filename `publish.yml`, and environment `npm`.
-3. Confirm the publish workflow is present on the default branch before publishing a release.
+1. Create a GitHub App installed only on this repository. Grant Contents, Issues, and Pull requests read/write access; Metadata remains read-only.
+2. Create a GitHub environment named `release`. Store the App client ID in the repository variable `RELEASE_APP_CLIENT_ID` and its private key in the `release` environment secret `RELEASE_APP_PRIVATE_KEY`.
+3. Create a second GitHub environment named `npm`. No secret is required in this environment.
+4. Restrict both environments to the `main` deployment branch and disable administrator bypass. These restrictions prevent a modified workflow on another branch from using the App key or requesting npm publishing credentials.
+5. In the npm package settings for `opencode-quota-tracker`, add a GitHub Actions trusted publisher with owner `yehezkielgunawan`, repository `opencode-quota-tracker`, workflow filename `publish.yml`, environment `npm`, and publish permission.
 
-Prepare each release in a pull request. Choose the appropriate SemVer increment instead of `patch` when needed, then commit the version change and open the pull request:
+Use Conventional Commit messages or squash-merge pull requests with Conventional Commit titles. Release Please derives the next version from these prefixes:
 
-```bash
-pnpm version patch --no-git-tag-version
-pnpm check
-VERSION=$(node -p "require('./package.json').version")
-git add package.json
-git commit -m "chore: release $VERSION"
-git push
-```
+- `fix:` creates a patch release.
+- `feat:` creates a minor release.
+- `feat!:` or a `BREAKING CHANGE` footer creates a major release.
 
-After the version pull request passes CI and merges, create a GitHub Release from `main` with a tag exactly matching `v` plus the version in `package.json`:
+Each merge to `main` runs `.github/workflows/publish.yml`. Release Please creates or updates one release pull request containing the version and `CHANGELOG.md` changes. Review that pull request and wait for its normal `Check` status. Merging the release pull request creates the matching `vX.Y.Z` GitHub Release and starts the conditional npm publish job in the same workflow.
 
-```bash
-git switch main
-git pull --ff-only
-VERSION=$(node -p "require('./package.json').version")
-gh release create "v$VERSION" --target main --generate-notes
-```
+The publish job checks out the generated tag, repeats all checks, verifies the tag against `package.json`, rebuilds through `prepack`, publishes publicly, and records npm provenance. Do not run `npm publish` locally for a workflow-managed release.
 
-Publishing the GitHub Release is the event that starts `.github/workflows/publish.yml`. The workflow repeats all checks, verifies the tag, rebuilds the package through `prepack`, publishes it publicly, and records npm provenance.
+If npm rejects the workflow identity, confirm every Trusted Publisher field matches exactly. When only the publish job failed, use **Re-run failed jobs** so the successful release job and its outputs are preserved; do not use **Re-run all jobs**.
 
-Do not run `npm publish` locally for a workflow-managed release. A local publish sends the package directly to npm and does not trigger GitHub Actions. If that version is published locally first, a later GitHub Release for the same version will start the workflow but fail because npm versions cannot be overwritten.
-
-If a transient workflow step fails, rerun the failed job in GitHub Actions. A tag/version mismatch requires correcting the GitHub Release and tag. npm rejects a version that has already been published; increment the package version and create a new release rather than attempting to overwrite it.
+If Release Please failed after creating the GitHub Release, open the `Release` workflow in GitHub Actions, choose **Run workflow**, select the `main` branch, and enter the existing tag. This recovery path publishes only an existing, non-draft GitHub Release whose tag matches `package.json`; it does not create or version a release. npm rejects versions that have already been published and does not permit overwriting them.
 
 ## Scope
 
