@@ -35,9 +35,10 @@ describe("manual publish workflow", () => {
     await expect(access(new URL("CHANGELOG.md", root))).resolves.toBeUndefined()
   })
 
-  it("documents recovery of the existing unpublished release", async () => {
+  it("documents manual publication without an obsolete release recovery", async () => {
     const readme = await readFile(new URL("README.md", root), "utf8")
 
-    expect(readme).toContain('gh workflow run publish.yml --ref main -f tag="v0.1.3"')
+    expect(readme).toContain('gh workflow run publish.yml --ref main -f tag="v$VERSION"')
+    expect(readme).not.toContain('tag="v0.1.3"')
   })
 })
