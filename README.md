@@ -4,7 +4,7 @@
   <img src="./public/opencode-quota-tracker-logo.svg" alt="OpenCode Quota Tracker logo" width="240">
 </p>
 
-`opencode-quota-tracker` adds a local `/quota` command to the OpenCode TUI. It reads provider quota data and the usage already recorded by OpenCode, then shows the result in a scrollable dialog. The command does not submit a prompt or call a model.
+`opencode-quota-tracker` adds a local `/quota` command to the OpenCode TUI. It reads provider quota data and the usage already recorded by OpenCode, then shows the result in a scrollable full-screen view. The command does not submit a prompt or call a model.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ npm install opencode-quota-tracker
 pnpm add opencode-quota-tracker
 ```
 
-Restart OpenCode after changing the plugin configuration. Type `/quota` in the TUI and run the command. It opens a local dialog and leaves the conversation transcript unchanged.
+Restart OpenCode after changing the plugin configuration. Type `/quota` in the TUI and run the command. It opens a local full-screen view and leaves the conversation transcript unchanged.
 
 OpenCode also loads local JavaScript and TypeScript plugins from these directories:
 
@@ -98,7 +98,7 @@ The cache lasts five minutes and exists only in the running OpenCode process. Ru
 **`/quota` is not discoverable:** Confirm the exact `opencode-quota-tracker` value is in the `plugin` array, then restart OpenCode. OpenCode selects the package's `./tui` export automatically. Check that the package name is not nested under another config key. If an older release is cached, refresh the current package explicitly:
 
 ```bash
-opencode plugin opencode-quota-tracker@0.1.1 --global --force
+opencode plugin opencode-quota-tracker@latest --global --force
 ```
 
 **An Admin block says `NOT_CONFIGURED`:** Export the matching Admin variable in the environment that launches OpenCode. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` do not enable Admin accounting.
