@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest"
+import type { TuiThemeCurrent } from "@opencode-ai/plugin/tui"
 
 import { createAllowanceMetric, createCostMetric, createTokenUsageMetric, type QuotaReport } from "../../src/domain/quota.js"
-import { getReportLines, type ReportViewState } from "../../src/tui/report-view.js"
+import {
+  createReportLines,
+  getReportLines,
+  reportToneColor,
+  type ReportLine,
+  type ReportViewState,
+} from "../../src/tui/report-view.js"
 
 const NOW = new Date("2026-07-31T12:00:00.000Z")
 function report(overrides: Partial<QuotaReport> = {}): QuotaReport {
@@ -137,6 +144,40 @@ function output(state: ReportViewState): string {
 }
 
 describe("ReportView", () => {
+  it("recomputes rendered lines when the route state changes", () => {
+    let state: ReportViewState = { status: "loading" }
+    const lines = createReportLines(() => state)
+
+    expect(lines().map((line) => line.text)).toContain("Collecting provider data")
+
+    state = { status: "error", message: "Quota sources could not be read." }
+
+    expect(lines().map((line) => line.text)).toContain("Unable to generate quota report")
+    expect(lines().map((line) => line.text)).not.toContain("Collecting provider data")
+  })
+
+  it("resolves every report tone from the active theme", () => {
+    const theme = {
+      accent: { token: "accent" },
+      text: { token: "text" },
+      textMuted: { token: "muted" },
+      warning: { token: "warning" },
+      error: { token: "error" },
+    } as unknown as TuiThemeCurrent
+    const expected: Record<ReportLine["tone"], unknown> = {
+      accent: theme.accent,
+      text: theme.text,
+      muted: theme.textMuted,
+      warm: theme.warning,
+      danger: theme.error,
+      stale: theme.warning,
+    }
+
+    for (const [tone, color] of Object.entries(expected)) {
+      expect(reportToneColor(theme, tone as ReportLine["tone"])).toBe(color)
+    }
+  })
+
   it("shows a loading state without pretending that data is available", async () => {
     const output = outputFor({ status: "loading" })
 

@@ -1,3 +1,6 @@
+import type { TuiThemeCurrent } from "@opencode-ai/plugin/tui"
+import type { Accessor } from "solid-js"
+
 import type {
   AccountKind,
   CollectorOutcome,
@@ -13,6 +16,7 @@ export type ReportViewState =
 
 export interface ReportViewProps {
   readonly state: ReportViewState
+  readonly theme: TuiThemeCurrent
 }
 
 export interface ReportLine {
@@ -27,13 +31,19 @@ const sectionDefinitions: readonly { readonly kind: AccountKind; readonly title:
   { kind: "local", title: "This OpenCode installation", eyebrow: "LOCAL RECORD" },
 ]
 
-const colors: Readonly<Record<ReportLine["tone"], string>> = {
-  accent: "#70d6c2",
-  text: "#e7edf5",
-  muted: "#8391a5",
-  warm: "#f2bd70",
-  danger: "#ef8f98",
-  stale: "#e6a85f",
+export function reportToneColor(
+  theme: TuiThemeCurrent,
+  tone: ReportLine["tone"],
+): TuiThemeCurrent["accent"] {
+  const colors: Readonly<Record<ReportLine["tone"], TuiThemeCurrent["accent"]>> = {
+    accent: theme.accent,
+    text: theme.text,
+    muted: theme.textMuted,
+    warm: theme.warning,
+    danger: theme.error,
+    stale: theme.warning,
+  }
+  return colors[tone]
 }
 
 function providerLabel(provider: string, accountKind: AccountKind): string {
@@ -138,22 +148,28 @@ export function getReportLines(state: ReportViewState): readonly ReportLine[] {
   return lines
 }
 
+export function createReportLines(state: Accessor<ReportViewState>): Accessor<readonly ReportLine[]> {
+  return () => getReportLines(state())
+}
+
 export function ReportView(props: ReportViewProps) {
-  const lines = getReportLines(props.state)
-  const header = lines.slice(0, 2)
-  const body = lines.slice(2)
+  const lines = createReportLines(() => props.state)
+  const header = () => lines().slice(0, 2)
+  const body = () => lines().slice(2)
 
   return (
-    <box width="100%" height="100%" flexDirection="column" backgroundColor="#101318" padding={1}>
+    <box width="100%" height="100%" flexDirection="column" backgroundColor={props.theme.background} padding={1}>
       <box flexDirection="row" justifyContent="space-between" width="100%" marginBottom={1}>
-        <text fg={colors[header[0]?.tone ?? "accent"]} attributes={1}>
-          {header[0]?.text ?? "QUOTA / LIVE READ"}
+        <text fg={reportToneColor(props.theme, header()[0]?.tone ?? "accent")} attributes={1}>
+          {header()[0]?.text ?? "QUOTA / LIVE READ"}
         </text>
-        <text fg={colors[header[1]?.tone ?? "muted"]}>{header[1]?.text ?? "UTC · /quota"}</text>
+        <text fg={reportToneColor(props.theme, header()[1]?.tone ?? "muted")}>
+          {header()[1]?.text ?? "UTC · /quota"}
+        </text>
       </box>
       <scrollbox width="100%" height="100%" flexDirection="column" stickyScroll stickyStart="top">
-        {body.map((line) => (
-          <text fg={colors[line.tone]} attributes={line.emphasis ? 1 : 0}>
+        {body().map((line) => (
+          <text fg={reportToneColor(props.theme, line.tone)} attributes={line.emphasis ? 1 : 0}>
             {line.text}
           </text>
         ))}
