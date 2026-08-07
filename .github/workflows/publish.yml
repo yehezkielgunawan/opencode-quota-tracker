@@ -1,8 +1,6 @@
-name: Release
+name: Publish
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -14,52 +12,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: npm-publish-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Manage release
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: release
-    permissions:
-      contents: read
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      sha: ${{ steps.release.outputs.sha }}
-
-    steps:
-      - name: Create GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          permission-contents: write
-          permission-issues: write
-          permission-pull-requests: write
-
-      - name: Create or update release
-        id: release
-        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
   publish:
     name: Publish to npm
-    needs: release
-    if: always() && (needs.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: npm
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.release.outputs.tag_name }}
-      EXPECTED_SHA: ${{ needs.release.outputs.sha }}
+      RELEASE_TAG: ${{ inputs.tag }}
     permissions:
       contents: read
       id-token: write
@@ -69,6 +33,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Verify GitHub release and commit
@@ -80,11 +45,7 @@ jobs:
           actual_sha=$(git rev-parse HEAD)
           tag_sha=$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")
           test "$actual_sha" = "$tag_sha"
-
-          if [[ -n "$EXPECTED_SHA" && "$actual_sha" != "$EXPECTED_SHA" ]]; then
-            echo "Release tag $RELEASE_TAG points to $actual_sha, expected $EXPECTED_SHA."
-            exit 1
-          fi
+          git merge-base --is-ancestor "$actual_sha" "origin/main"
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
