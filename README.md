@@ -115,6 +115,31 @@ npm pack --dry-run
 
 `pnpm check` runs strict typechecking, the full Vitest suite, and the production build. The package publishes `dist/`, `README.md`, and `LICENSE`; tests, fixtures, credentials, coverage output, and local databases are excluded.
 
+## Continuous integration
+
+Pull requests run `pnpm check` in GitHub Actions, using the Node.js and pnpm versions declared by this package. To prevent unverified changes from reaching `main`, make the `Check` status required in the branch protection rules for the default branch.
+
+## Publishing releases
+
+Publishing uses npm Trusted Publishing. GitHub Actions exchanges a short-lived OpenID Connect credential with npm, so the repository does not need an `NPM_TOKEN` secret.
+
+Configure publishing once before creating the next release:
+
+1. In the GitHub repository settings, create an environment named `npm`. No environment secret is required. You can optionally restrict deployments to tags matching `v*`.
+2. In the npm package settings for `opencode-quota-tracker`, add a GitHub Actions trusted publisher with owner `yehezkielgunawan`, repository `opencode-quota-tracker`, workflow filename `publish.yml`, and environment `npm`.
+3. Confirm the publish workflow is present on the default branch before publishing a release.
+
+Prepare each release in a pull request. Choose the appropriate SemVer increment instead of `patch` when needed:
+
+```bash
+pnpm version patch --no-git-tag-version
+pnpm check
+```
+
+After the version pull request passes CI and merges, publish a GitHub Release from the merged commit with a tag exactly matching `v` plus the version in `package.json`, for example `v0.1.2`. Publishing the GitHub Release starts the npm workflow. The workflow repeats all checks, verifies the tag, rebuilds the package through `prepack`, publishes it publicly, and records npm provenance.
+
+If a transient workflow step fails, rerun the failed job in GitHub Actions. A tag/version mismatch requires correcting the GitHub Release and tag. npm rejects a version that has already been published; increment the package version and create a new release rather than attempting to overwrite it.
+
 ## Scope
 
 The first release supports OpenAI and Anthropic subscription and organization accounting plus local OpenCode usage. Gemini, Copilot, OpenRouter, historical snapshots, alerts, exports, and a standalone web dashboard are outside this package's current scope.
