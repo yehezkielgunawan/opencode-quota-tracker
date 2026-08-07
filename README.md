@@ -164,18 +164,6 @@ The workflow requires an existing, non-draft GitHub Release, checks out the exac
 
 If npm rejects the workflow identity, confirm every Trusted Publisher field matches exactly. A failed publish can be retried or dispatched again only while that version is absent from npm. npm rejects versions that have already been published and does not permit overwriting them.
 
-The existing `v0.1.3` GitHub Release has not yet been published to npm. After this workflow is merged to `main` and Trusted Publishing is configured, publish that existing release without another version bump:
-
-```bash
-gh workflow run publish.yml --ref main -f tag="v0.1.3"
-```
-
-Confirm the recovery before preparing another version:
-
-```bash
-npm view opencode-quota-tracker@0.1.3 version
-```
-
 ## Scope
 
 The first release supports OpenAI and Anthropic subscription and organization accounting plus local OpenCode usage. Gemini, Copilot, OpenRouter, historical snapshots, alerts, exports, and a standalone web dashboard are outside this package's current scope.
