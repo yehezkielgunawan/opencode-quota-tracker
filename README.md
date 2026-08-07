@@ -1,5 +1,9 @@
 # OpenCode Quota Tracker
 
+<p align="center">
+  <img src="./public/opencode-quota-tracker-logo.svg" alt="OpenCode Quota Tracker logo" width="240">
+</p>
+
 `opencode-quota-tracker` adds a local `/quota` command to the OpenCode TUI. It reads provider quota data and the usage already recorded by OpenCode, then shows the result in a scrollable dialog. The command does not submit a prompt or call a model.
 
 ## Requirements
@@ -117,7 +121,7 @@ npm pack --dry-run
 
 ## Continuous integration
 
-Pull requests run `pnpm check` in GitHub Actions, using the Node.js and pnpm versions declared by this package. To prevent unverified changes from reaching `main`, make the `Check` status required in the branch protection rules for the default branch.
+Pull requests run `pnpm check` in GitHub Actions, using the Node.js and pnpm versions declared by this package. Opening, updating, or merging a pull request does not publish the package. To prevent unverified changes from reaching `main`, make the `Check` status required in the branch protection rules for the default branch.
 
 ## Publishing releases
 
@@ -129,14 +133,29 @@ Configure publishing once before creating the next release:
 2. In the npm package settings for `opencode-quota-tracker`, add a GitHub Actions trusted publisher with owner `yehezkielgunawan`, repository `opencode-quota-tracker`, workflow filename `publish.yml`, and environment `npm`.
 3. Confirm the publish workflow is present on the default branch before publishing a release.
 
-Prepare each release in a pull request. Choose the appropriate SemVer increment instead of `patch` when needed:
+Prepare each release in a pull request. Choose the appropriate SemVer increment instead of `patch` when needed, then commit the version change and open the pull request:
 
 ```bash
 pnpm version patch --no-git-tag-version
 pnpm check
+VERSION=$(node -p "require('./package.json').version")
+git add package.json
+git commit -m "chore: release $VERSION"
+git push
 ```
 
-After the version pull request passes CI and merges, publish a GitHub Release from the merged commit with a tag exactly matching `v` plus the version in `package.json`, for example `v0.1.2`. Publishing the GitHub Release starts the npm workflow. The workflow repeats all checks, verifies the tag, rebuilds the package through `prepack`, publishes it publicly, and records npm provenance.
+After the version pull request passes CI and merges, create a GitHub Release from `main` with a tag exactly matching `v` plus the version in `package.json`:
+
+```bash
+git switch main
+git pull --ff-only
+VERSION=$(node -p "require('./package.json').version")
+gh release create "v$VERSION" --target main --generate-notes
+```
+
+Publishing the GitHub Release is the event that starts `.github/workflows/publish.yml`. The workflow repeats all checks, verifies the tag, rebuilds the package through `prepack`, publishes it publicly, and records npm provenance.
+
+Do not run `npm publish` locally for a workflow-managed release. A local publish sends the package directly to npm and does not trigger GitHub Actions. If that version is published locally first, a later GitHub Release for the same version will start the workflow but fail because npm versions cannot be overwritten.
 
 If a transient workflow step fails, rerun the failed job in GitHub Actions. A tag/version mismatch requires correcting the GitHub Release and tag. npm rejects a version that has already been published; increment the package version and create a new release rather than attempting to overwrite it.
 
