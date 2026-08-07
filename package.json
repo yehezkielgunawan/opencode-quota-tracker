@@ -1,6 +1,6 @@
 {
   "name": "opencode-quota-tracker",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Cross-provider subscription, API, and local usage accounting for the OpenCode TUI",
   "private": false,
   "type": "module",
@@ -49,9 +49,9 @@
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.18.5",
-    "@opentui/core": "^0.4.5",
-    "@opentui/keymap": "^0.4.5",
-    "@opentui/solid": "^0.4.5",
+    "@opentui/core": ">=0.4.5 <0.6.0",
+    "@opentui/keymap": ">=0.4.5 <0.6.0",
+    "@opentui/solid": ">=0.4.5 <0.6.0",
     "solid-js": "^1.9.12"
   },
   "devDependencies": {
