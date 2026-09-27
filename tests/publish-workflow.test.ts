@@ -16,6 +16,7 @@ describe("automatic releases", () => {
     expect(workflow).toContain("id-token: write")
     expect(workflow).toContain("fetch-depth: 0")
     expect(workflow).toContain("actions/create-github-app-token@")
+    expect(workflow).toContain("app-id: ${{ vars.RELEASE_APP_ID || secrets.RELEASE_APP_ID }}")
     expect(workflow).toContain("token: ${{ steps.app-token.outputs.token }}")
     expect(workflow).toContain("GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}")
     expect(workflow).toContain("pnpm install --frozen-lockfile")
