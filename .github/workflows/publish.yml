@@ -1,51 +1,42 @@
 name: Publish
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing GitHub Release tag to publish
-        required: true
-        type: string
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: npm-publish-${{ inputs.tag }}
+  group: npm-publish-main
   cancel-in-progress: false
 
 jobs:
   publish:
-    name: Publish to npm
-    if: github.ref == 'refs/heads/main'
+    name: Verify and release
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment: npm
-    env:
-      RELEASE_TAG: ${{ inputs.tag }}
     permissions:
-      contents: read
+      contents: write
+      issues: write
+      pull-requests: write
       id-token: write
 
     steps:
-      - name: Check out release tag
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ env.RELEASE_TAG }}
           fetch-depth: 0
-          persist-credentials: false
-
-      - name: Verify GitHub release and commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = "false"
-
-          actual_sha=$(git rev-parse HEAD)
-          tag_sha=$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")
-          test "$actual_sha" = "$tag_sha"
-          git merge-base --is-ancestor "$actual_sha" "origin/main"
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -54,28 +45,15 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify release tag
-        run: |
-          node --input-type=module <<'EOF'
-          import { readFile } from "node:fs/promises"
-
-          const packageJson = JSON.parse(await readFile("package.json", "utf8"))
-          const expectedTag = `v${packageJson.version}`
-
-          if (process.env.RELEASE_TAG !== expectedTag) {
-            console.error(`Release tag ${process.env.RELEASE_TAG} does not match ${expectedTag}.`)
-            process.exit(1)
-          }
-          EOF
-
       - name: Check package
         run: pnpm check
 
-      - name: Publish package
-        run: npm publish --access public --provenance
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: pnpm exec semantic-release
