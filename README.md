@@ -4,6 +4,8 @@
   <img src="./public/opencode-quota-tracker-logo.svg" alt="OpenCode Quota Tracker logo" width="240">
 </p>
 
+> So far only GPT and Claude are supported. Gemini, Copilot, OpenRouter, and other providers are not yet supported.
+
 `opencode-quota-tracker` adds a local `/quota` command to the OpenCode TUI. It reads provider quota data and the usage already recorded by OpenCode, then shows the result in a scrollable full-screen view. The command does not submit a prompt or call a model.
 
 ## Requirements
