@@ -73,16 +73,6 @@ function metricValue(metric: QuotaMetric, now: Date): string {
   return formatUsd(metric.used)
 }
 
-function setupHint(outcome: CollectorOutcome): string | undefined {
-  if (outcome.state !== "not_configured") return undefined
-  if (outcome.accountKind === "api_organization") {
-    return `Set ${outcome.provider === "openai" ? "OPENAI_ADMIN_API_KEY" : "ANTHROPIC_ADMIN_API_KEY"} to enable Admin accounting.`
-  }
-  if (outcome.provider === "anthropic") return "Set up Claude Code authentication to enable subscription allowance."
-  if (outcome.provider === "openai") return "Sign in to OpenCode to enable subscription allowance."
-  return undefined
-}
-
 function push(lines: ReportLine[], text: string, tone: ReportLine["tone"], emphasis = false): void {
   lines.push({ text, tone, ...(emphasis ? { emphasis: true } : {}) })
 }
@@ -104,8 +94,6 @@ function renderOutcome(lines: ReportLine[], outcome: CollectorOutcome, now: Date
   }
 
   push(lines, `    ${outcome.message}`, "danger")
-  const hint = setupHint(outcome)
-  if (hint) push(lines, `    ${hint}`, "warm")
 }
 
 export function getReportLines(state: ReportViewState): readonly ReportLine[] {
@@ -125,23 +113,27 @@ export function getReportLines(state: ReportViewState): readonly ReportLine[] {
   }
 
   let hasUsableOutcome = false
+  let hasVisibleOutcome = false
   for (const definition of sectionDefinitions) {
+    const outcomes = state.report.sections
+      .filter((section) => section.accountKind === definition.kind)
+      .flatMap((section) => section.outcomes)
+      .filter((outcome) => outcome.state !== "not_configured")
+    if (outcomes.length === 0) continue
+
+    hasVisibleOutcome = true
     push(lines, definition.eyebrow, "accent", true)
     push(lines, definition.title, "text", true)
-    const sections = state.report.sections.filter((section) => section.accountKind === definition.kind)
-    if (sections.length === 0) {
-      push(lines, "  No source reported data for this section.", "muted")
-      continue
-    }
-    for (const section of sections) {
-      for (const outcome of section.outcomes) {
-        if (outcome.state === "ok" || outcome.state === "stale") hasUsableOutcome = true
-        renderOutcome(lines, outcome, state.now)
-      }
+    for (const outcome of outcomes) {
+      if (outcome.state === "ok" || outcome.state === "stale") hasUsableOutcome = true
+      renderOutcome(lines, outcome, state.now)
     }
   }
 
-  if (!hasUsableOutcome) {
+  if (!hasVisibleOutcome && state.report.sections.some((section) => section.outcomes.length > 0)) {
+    push(lines, "No configured quota sources.", "warm", true)
+    push(lines, "Sign in to OpenCode or Claude Code, or set an Admin API key.", "muted")
+  } else if (!hasUsableOutcome) {
     push(lines, "No quota sources are currently available.", "danger", true)
     push(lines, "Check credentials and try /quota again.", "muted")
   }

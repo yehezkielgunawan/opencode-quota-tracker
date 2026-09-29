@@ -50,7 +50,7 @@ For local development, build this repository with `pnpm build` and use the gener
 
 ## Configure credentials
 
-The command has three separate data sections. A missing credential affects only its own provider block.
+The command has three separate data sections. A missing credential hides only its own provider block.
 
 ### Subscription allowance
 
@@ -80,7 +80,7 @@ Do not paste real keys into `opencode.json`, this README, issue reports, or shel
 2. `API organization` shows official Admin API message tokens and provider-reported USD cost for the current UTC month.
 3. `This OpenCode installation` shows current UTC day and month-to-date tokens and recorded cost from OpenCode's own database.
 
-Each provider block shows its state, data authority, acquisition source, and freshness. A `NOT_CONFIGURED` block includes the relevant setup hint. A network or permission failure stays in that provider block instead of hiding successful data from other providers. A stale block is marked `STALE` when the last successful in-memory value is shown after a refresh failure.
+Configured provider blocks show their state, data authority, acquisition source, and freshness. Unconfigured blocks and sections with no visible providers are omitted; if every source is unconfigured, the view shows a short sign-in or Admin key prompt. A network or permission failure stays in its provider block instead of hiding successful data from other providers. A stale block is marked `STALE` when the last successful in-memory value is shown after a refresh failure. Historical per-model usage from this OpenCode installation remains visible.
 
 The cache lasts five minutes and exists only in the running OpenCode process. Running `/quota` again after the cache expires refreshes the report. Reset countdowns and local day/month boundaries use UTC. Local cost is the value recorded by OpenCode, not an invoice calculation.
 
@@ -101,9 +101,9 @@ The cache lasts five minutes and exists only in the running OpenCode process. Ru
 opencode plugin opencode-quota-tracker@latest --global --force
 ```
 
-**An Admin block says `NOT_CONFIGURED`:** Export the matching Admin variable in the environment that launches OpenCode. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` do not enable Admin accounting.
+**An Admin block is missing:** Export the matching Admin variable in the environment that launches OpenCode. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` do not enable Admin accounting.
 
-**A subscription block says `NOT_CONFIGURED`:** Sign in to OpenCode for OpenAI, or install and sign in with Claude Code for Anthropic. On macOS, check the Claude Code Keychain entry; on other systems, check the credentials file path.
+**A subscription block is missing:** Sign in to OpenCode for OpenAI, or install and sign in with Claude Code for Anthropic. On macOS, check the Claude Code Keychain entry; on other systems, check the credentials file path.
 
 **Local usage is unavailable:** The plugin could not find or read OpenCode's database. It does not create a replacement database. Provider sections can still load normally.
 

@@ -200,14 +200,56 @@ describe("ReportView", () => {
     expect(output).toContain("local_record · local_database")
   })
 
-  it("keeps successful providers visible beside failures and shows Admin setup hints", async () => {
+  it("hides unconfigured provider blocks beside successful sources", async () => {
     const output = outputFor(readyState())
 
     expect(output).toContain("OPENAI / SUBSCRIPTION")
-    expect(output).toContain("ANTHROPIC / API ORGANIZATION")
-    expect(output).toContain("NOT_CONFIGURED")
-    expect(output).toContain("Set ANTHROPIC_ADMIN_API_KEY")
-    expect(output).toContain("Set up Claude Code authentication")
+    expect(output).toContain("OPENAI / API ORGANIZATION")
+    expect(output).toContain("Today · openai/gpt-4.1")
+    expect(output).not.toContain("ANTHROPIC / SUBSCRIPTION")
+    expect(output).not.toContain("ANTHROPIC / API ORGANIZATION")
+    expect(output).not.toContain("NOT_CONFIGURED")
+  })
+
+  it("omits empty headings and shows one prompt when every source is unconfigured", () => {
+    const onlyUnconfigured = report({
+      sections: report().sections.filter((section) =>
+        section.outcomes.every((outcome) => outcome.state === "not_configured"),
+      ),
+    })
+    const text = output(readyState(onlyUnconfigured))
+
+    expect(text).toContain("No configured quota sources")
+    expect(text).not.toContain("Subscription allowance")
+    expect(text).not.toContain("API organization")
+    expect(text).not.toContain("This OpenCode installation")
+    expect(text).not.toContain("NOT_CONFIGURED")
+  })
+
+  it("keeps a configured source's authentication error beside an unconfigured outcome", () => {
+    const anthropic = report().sections[1]!
+    const mixed = report({
+      sections: [{
+        ...anthropic,
+        outcomes: [
+          ...anthropic.outcomes,
+          {
+            collectorId: "anthropic-subscription-retry",
+            provider: "anthropic",
+            accountKind: "subscription",
+            state: "unauthorized",
+            fetchedAt: NOW,
+            message: "Claude authentication has expired.",
+          },
+        ],
+      }],
+    })
+    const text = output(readyState(mixed))
+
+    expect(text).toContain("Subscription allowance")
+    expect(text).toContain("ANTHROPIC / SUBSCRIPTION  UNAUTHORIZED")
+    expect(text).toContain("Claude authentication has expired.")
+    expect(text).not.toContain("NOT_CONFIGURED")
   })
 
   it("marks stale values explicitly and preserves their original freshness time", async () => {
