@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { TuiThemeCurrent } from "@opencode-ai/plugin/tui"
+import type { Context } from "@opencode/plugin/tui/context"
 
 import { createAllowanceMetric, createCostMetric, createTokenUsageMetric, type QuotaReport } from "../../src/domain/quota.js"
 import {
@@ -158,19 +158,20 @@ describe("ReportView", () => {
 
   it("resolves every report tone from the active theme", () => {
     const theme = {
-      accent: { token: "accent" },
-      text: { token: "text" },
-      textMuted: { token: "muted" },
-      warning: { token: "warning" },
-      error: { token: "error" },
-    } as unknown as TuiThemeCurrent
+      text: {
+        base: { token: "text" },
+        muted: { token: "muted" },
+        action: { primary: { base: { token: "accent" } } },
+        feedback: { warning: { base: { token: "warning" } }, error: { base: { token: "error" } } },
+      },
+    } as unknown as Context["theme"]
     const expected: Record<ReportLine["tone"], unknown> = {
-      accent: theme.accent,
-      text: theme.text,
-      muted: theme.textMuted,
-      warm: theme.warning,
-      danger: theme.error,
-      stale: theme.warning,
+      accent: theme.text.action.primary.base,
+      text: theme.text.base,
+      muted: theme.text.muted,
+      warm: theme.text.feedback.warning.base,
+      danger: theme.text.feedback.error.base,
+      stale: theme.text.feedback.warning.base,
     }
 
     for (const [tone, color] of Object.entries(expected)) {

@@ -3,12 +3,10 @@ import { DatabaseSync } from "node:sqlite";
 import type { ReadonlySqliteDatabase } from "../../src/runtime/sqlite.js";
 
 export interface OpenCodeFixtureMessage {
-  readonly role?: string;
-  readonly providerID?: string;
-  readonly modelID?: string;
+  readonly type?: string;
+  readonly model?: { readonly providerID?: string; readonly id?: string };
   readonly time?: { readonly completed?: number };
   readonly tokens?: {
-    readonly total?: number;
     readonly input?: number;
     readonly output?: number;
     readonly reasoning?: number;
@@ -26,16 +24,18 @@ export function createOpenCodeFixture(messages: readonly OpenCodeFixtureMessage[
   let closed = false;
   const sql: string[] = [];
   database.exec(
-    `CREATE TABLE message (id TEXT PRIMARY KEY, time_created INTEGER, time_updated INTEGER, data TEXT)`,
+    // OpenCode v2.2.0 packages/core/src/session/sql.ts: type/id live outside data.
+    `CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL, time_created INTEGER, time_updated INTEGER, data TEXT NOT NULL)`,
   );
 
   const insert = database.prepare(
-    "INSERT INTO message (id, time_created, time_updated, data) VALUES (?, ?, ?, ?)",
+    "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
   );
   messages.forEach((message, index) => {
     const completed =
       typeof message.time?.completed === "number" ? message.time.completed : Date.now();
-    insert.run(`msg_${index}`, completed, completed, JSON.stringify(message));
+    const { type = "assistant", ...data } = message;
+    insert.run(`msg_${index}`, "session-1", type, index, completed, completed, JSON.stringify(data));
   });
 
   return {

@@ -1,3 +1,5 @@
+import type { Context, Route, KeymapLayer, Page } from "@opencode/plugin/tui/context"
+import { createRoot } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
 
 import type { QuotaReport } from "../../src/domain/quota.js"
@@ -12,175 +14,179 @@ vi.mock("../../src/tui/report-view.js", () => ({
 }))
 
 const NOW = new Date("2026-07-31T12:00:00.000Z")
+const PLUGIN_ID = "opencode-quota-tracker"
 
 function report(): QuotaReport {
   return { generatedAt: NOW, sections: [] }
 }
 
-function apiFixture() {
-  const registeredLayers: any[] = []
-  const layerCleanups: ReturnType<typeof vi.fn>[] = []
-  let registeredRoutes: any[] = []
-  const unregisterRoutes = vi.fn()
+function apiFixture(initial: Route = { type: "session", sessionID: "session-1" }) {
+  const layers: KeymapLayer[] = []
+  let page: Page
+  const current = { ...initial }
+  const updateRoute = (route: Route) => {
+    const record = current as unknown as Record<string, unknown>
+    for (const key of Object.keys(record)) delete record[key]
+    Object.assign(record, route)
+  }
+  const unregister = vi.fn()
   const popMode = vi.fn()
-  const replace = vi.fn()
-  const registerLayer = vi.fn((layer: any) => {
-    registeredLayers.push(layer)
-    const cleanup = vi.fn()
-    layerCleanups.push(cleanup)
-    return cleanup
+  const navigate = vi.fn((route: Route) => {
+    updateRoute(route.type === "plugin" ? { ...route, id: route.id ?? PLUGIN_ID } : route)
   })
-  const registerRoutes = vi.fn((routes: any[]) => {
-    registeredRoutes = routes
-    return unregisterRoutes
-  })
-  const navigate = vi.fn()
-  const pushMode = vi.fn(() => popMode)
-  const onDispose = vi.fn((dispose: () => void) => {
-    return () => dispose()
-  })
-
-  return {
-    api: {
-      keymap: { registerLayer },
-      mode: { push: pushMode },
-      route: {
-        current: { name: "session", params: { sessionID: "session-1" } },
-        register: registerRoutes,
+  const context = {
+    app: { version: "2.2.0", channel: "latest" },
+    keymap: {
+      layer: vi.fn((factory: () => KeymapLayer) => layers.push(factory())),
+      mode: { push: vi.fn(() => popMode) },
+    },
+    ui: {
+      router: {
+        current: () => current,
+        register: vi.fn((value: Page) => { page = value; return unregister }),
         navigate,
       },
-      theme: { current: {} },
-      ui: { dialog: { replace, clear: vi.fn() } },
-      lifecycle: { onDispose },
     },
-    get command() {
-      return registeredLayers.flatMap((layer) => layer.commands ?? []).find((value) => value.name === "quota.show")
-    },
-    get escapeBinding() {
-      return registeredLayers
-        .find((layer) => layer.mode === "quota")
-        ?.bindings?.find((binding: { key: string }) => binding.key === "escape")
-    },
-    get quotaRoute() {
-      return registeredRoutes.find((route) => route.name === "quota")
-    },
-    get registerLayer() {
-      return registerLayer
-    },
-    get registerRoutes() {
-      return registerRoutes
-    },
-    get navigate() {
-      return navigate
-    },
-    get pushMode() {
-      return pushMode
-    },
-    get popMode() {
-      return popMode
-    },
-    get unregisterRoutes() {
-      return unregisterRoutes
-    },
-    get layerCleanups() {
-      return layerCleanups
-    },
-    get onDispose() {
-      return onDispose
-    },
-    dispose() {
-      const cleanup = onDispose.mock.calls[0]?.[0]
-      cleanup?.()
+    theme: {},
+  }
+  return {
+    context: context as unknown as Context,
+    navigate,
+    unregister,
+    popMode,
+    pushMode: context.keymap.mode.push,
+    get command() { return layers.flatMap((layer) => layer.commands ?? []).find((cmd) => cmd.id === "quota.show")! },
+    get escape() { return layers.find((layer) => layer.mode === "quota")?.commands?.find((cmd) => cmd.bind === "escape")! },
+    get page() { return page! },
+    setRoute(route: Route) { updateRoute(route) },
+    render() {
+      let dispose!: () => void
+      createRoot((cleanup) => { dispose = cleanup; page.render({}) })
+      return dispose
     },
   }
 }
 
-describe("quota TUI plugin", () => {
-  it("exports the target-exclusive TUI module shape OpenCode loads", () => {
-    expect(plugin as unknown).toMatchObject({ tui: expect.any(Function) })
+function setup(fixture: ReturnType<typeof apiFixture>, generate = async () => report()) {
+  return createQuotaTuiPlugin({ service: { generate }, now: () => NOW }).setup(fixture.context)
+}
+
+describe("quota V2 TUI plugin", () => {
+  it("exports a stable V2 definition without a V1 entrypoint", () => {
+    expect(plugin).toMatchObject({ id: PLUGIN_ID, setup: expect.any(Function) })
+    expect(plugin).not.toHaveProperty("tui")
+    expect(plugin).not.toHaveProperty("server")
   })
 
-  it("registers /quota as a full-screen route and renders it in quota mode", async () => {
+  it("registers the palette and slash command without submitting a prompt", async () => {
     const fixture = apiFixture()
     const generate = vi.fn(async () => report())
-    await createQuotaTuiPlugin({ service: { generate }, now: () => NOW })(fixture.api as never, undefined, {} as never)
-
-    expect(fixture.registerLayer).toHaveBeenCalledTimes(2)
-    expect(fixture.registerRoutes).toHaveBeenCalledTimes(1)
-    expect(fixture.quotaRoute).toMatchObject({ name: "quota", render: expect.any(Function) })
-    expect(fixture.command).toBeDefined()
+    await setup(fixture, generate)
     expect(fixture.command).toMatchObject({
-      name: "quota.show",
-      title: "Show quota report",
-      namespace: "palette",
-      desc: expect.any(String),
-      slashName: "quota",
+      id: "quota.show", title: "Show quota report", palette: true, slash: { name: "quota" },
     })
-
-    await fixture.command.run({} as never)
-
-    expect(fixture.navigate).toHaveBeenCalledWith("quota")
+    expect(fixture.page.name).toBe("quota")
+    await fixture.command.run()
     expect(generate).toHaveBeenCalledTimes(1)
-    fixture.quotaRoute.render({})
+    expect(fixture.navigate).toHaveBeenCalledWith({ type: "plugin", name: "quota" })
+    const unmount = fixture.render()
     expect(fixture.pushMode).toHaveBeenCalledWith("quota")
+    unmount()
+    expect(fixture.popMode).toHaveBeenCalledOnce()
   })
 
-  it("refreshes on a second invocation instead of submitting a prompt", async () => {
+  it("renders loading followed by the ready report", async () => {
     const fixture = apiFixture()
+    let resolve!: (value: QuotaReport) => void
+    await setup(fixture, () => new Promise((done) => { resolve = done }))
+    const pending = fixture.command.run()
+    let unmount = fixture.render()
+    expect(renderedStates.at(-1)).toMatchObject({ status: "loading" })
+    unmount()
+    resolve(report())
+    await pending
+    unmount = fixture.render()
+    expect(renderedStates.at(-1)).toMatchObject({ status: "ready", report: report() })
+    unmount()
+  })
+
+  it("renders a safe error when generation fails", async () => {
+    const fixture = apiFixture()
+    await setup(fixture, async () => { throw new Error("secret detail") })
+    await fixture.command.run()
+    const unmount = fixture.render()
+    expect(renderedStates.at(-1)).toEqual({ status: "error", message: "Quota sources could not be read." })
+    unmount()
+  })
+
+  it.each<Route>([{ type: "home" }, { type: "session", sessionID: "session-1" },
+    { type: "plugin", id: "other-plugin", name: "dashboard", data: { tab: "usage" } },
+  ])("restores the opening route after repeated invocations: %j", async (initial) => {
+    const fixture = apiFixture(initial)
     const generate = vi.fn(async () => report())
-    await createQuotaTuiPlugin({ service: { generate }, now: () => NOW })(fixture.api as never, undefined, {} as never)
-
-    await fixture.command.run({} as never)
-    await fixture.command.run({} as never)
-
+    await setup(fixture, generate)
+    await fixture.command.run()
+    await fixture.command.run()
+    fixture.escape.run()
     expect(generate).toHaveBeenCalledTimes(2)
-    expect(fixture.navigate).toHaveBeenCalledTimes(2)
+    expect(fixture.navigate).toHaveBeenLastCalledWith(initial)
+  })
+
+  it("does not confuse another plugin's quota route with its own", async () => {
+    const initial: Route = { type: "plugin", id: "other-plugin", name: "quota" }
+    const fixture = apiFixture(initial)
+    await setup(fixture)
+    await fixture.command.run()
+    fixture.escape.run()
+    expect(fixture.navigate).toHaveBeenLastCalledWith(initial)
   })
 
   it("does not let an older request replace a newer report", async () => {
     const fixture = apiFixture()
-    let resolveFirst!: (value: QuotaReport) => void
-    let resolveSecond!: (value: QuotaReport) => void
-    const first = new Promise<QuotaReport>((resolve) => (resolveFirst = resolve))
-    const second = new Promise<QuotaReport>((resolve) => (resolveSecond = resolve))
-    const generate = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second)
-    await createQuotaTuiPlugin({ service: { generate }, now: () => NOW })(fixture.api as never, undefined, {} as never)
-
-    const firstRun = fixture.command.run({} as never)
-    const secondRun = fixture.command.run({} as never)
-    const newerReport = report()
-    resolveSecond(newerReport)
-    await secondRun
-
-    resolveFirst({ generatedAt: new Date("2026-07-31T11:00:00.000Z"), sections: [] })
-    await firstRun
-    renderedStates.length = 0
-    fixture.quotaRoute.render({})
-
-    expect(renderedStates.at(-1)).toMatchObject({ status: "ready", report: newerReport })
+    let first!: (value: QuotaReport) => void
+    let second!: (value: QuotaReport) => void
+    const generate = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { first = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { second = resolve }))
+    await setup(fixture, generate)
+    const one = fixture.command.run()
+    const two = fixture.command.run()
+    const newer = report()
+    second(newer)
+    await two
+    first({ generatedAt: new Date(0), sections: [] })
+    await one
+    const unmount = fixture.render()
+    expect(renderedStates.at(-1)).toMatchObject({ status: "ready", report: newer })
+    unmount()
   })
 
-  it("returns to the route that opened quota when Escape is pressed", async () => {
+  it("restores its active route and unregisters on disposal, ignoring late results", async () => {
     const fixture = apiFixture()
-    const generate = vi.fn(async () => report())
-    await createQuotaTuiPlugin({ service: { generate }, now: () => NOW })(fixture.api as never, undefined, {} as never)
-
-    await fixture.command.run({} as never)
-    fixture.escapeBinding.cmd()
-
-    expect(fixture.navigate).toHaveBeenLastCalledWith("session", { sessionID: "session-1" })
+    let resolve!: (value: QuotaReport) => void
+    const cleanup = await setup(fixture, () => new Promise((done) => { resolve = done }))
+    const pending = fixture.command.run()
+    await cleanup?.()
+    expect(fixture.navigate).toHaveBeenLastCalledWith({ type: "session", sessionID: "session-1" })
+    expect(fixture.unregister).toHaveBeenCalledOnce()
+    resolve(report())
+    await pending
+    const unmount = fixture.render()
+    expect(renderedStates.at(-1)).toMatchObject({ status: "loading" })
+    unmount()
+    const count = fixture.navigate.mock.calls.length
+    await fixture.command.run()
+    expect(fixture.navigate).toHaveBeenCalledTimes(count)
   })
 
-  it("unregisters the route and both keymap layers when disposed", async () => {
+  it("does not navigate away from another route during disposal", async () => {
     const fixture = apiFixture()
-    const generate = vi.fn(async () => report())
-    await createQuotaTuiPlugin({ service: { generate }, now: () => NOW })(fixture.api as never, undefined, {} as never)
-
-    fixture.dispose()
-
-    expect(fixture.onDispose).toHaveBeenCalledTimes(1)
-    expect(fixture.unregisterRoutes).toHaveBeenCalledTimes(1)
-    expect(fixture.layerCleanups).toHaveLength(2)
-    expect(fixture.layerCleanups.every((cleanup) => cleanup.mock.calls.length === 1)).toBe(true)
+    const cleanup = await setup(fixture)
+    await fixture.command.run()
+    fixture.setRoute({ type: "home" })
+    const count = fixture.navigate.mock.calls.length
+    await cleanup?.()
+    expect(fixture.navigate).toHaveBeenCalledTimes(count)
+    expect(fixture.unregister).toHaveBeenCalledOnce()
   })
 })

@@ -13,16 +13,23 @@ describe("TSX test transform", () => {
     const packageJson = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as {
-      engines: { node: string }
+      engines: { node: string; opencode: string }
+      dependencies: Record<string, string>
+      exports: Record<string, unknown>
       peerDependencies: Record<string, string>
       scripts: { prepack: string; test: string }
     }
 
     expect(packageJson.engines.node).toBe(">=22.12.0")
+    expect(packageJson.engines.opencode).toBe(">=2.2.0 <3")
+    expect(packageJson.dependencies["@opencode/plugin"]).toBe("2.2.0")
+    expect(packageJson.peerDependencies).not.toHaveProperty("@opencode-ai/plugin")
+    expect(packageJson.peerDependencies).not.toHaveProperty("@opentui/keymap")
+    expect(Object.keys(packageJson.exports)).toEqual(["./tui"])
     expect(packageJson.scripts.test).toBe("vitest run")
     expect(packageJson.scripts.prepack).toContain("verify-package.mjs")
-    for (const dependency of ["@opentui/core", "@opentui/keymap", "@opentui/solid"]) {
-      expect(packageJson.peerDependencies[dependency]).toBe(">=0.4.5 <0.6.0")
+    for (const dependency of ["@opentui/core", "@opentui/solid"]) {
+      expect(packageJson.peerDependencies[dependency]).toBe("0.7.0")
     }
   })
 })

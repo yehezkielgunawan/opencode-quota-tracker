@@ -1,4 +1,4 @@
-import type { TuiThemeCurrent } from "@opencode-ai/plugin/tui"
+import type { Context } from "@opencode/plugin/tui/context"
 import type { Accessor } from "solid-js"
 
 import type {
@@ -16,7 +16,7 @@ export type ReportViewState =
 
 export interface ReportViewProps {
   readonly state: ReportViewState
-  readonly theme: TuiThemeCurrent
+  readonly theme: Context["theme"]
 }
 
 export interface ReportLine {
@@ -32,16 +32,16 @@ const sectionDefinitions: readonly { readonly kind: AccountKind; readonly title:
 ]
 
 export function reportToneColor(
-  theme: TuiThemeCurrent,
+  theme: Context["theme"],
   tone: ReportLine["tone"],
-): TuiThemeCurrent["accent"] {
-  const colors: Readonly<Record<ReportLine["tone"], TuiThemeCurrent["accent"]>> = {
-    accent: theme.accent,
-    text: theme.text,
-    muted: theme.textMuted,
-    warm: theme.warning,
-    danger: theme.error,
-    stale: theme.warning,
+): Context["theme"]["text"]["base"] {
+  const colors: Readonly<Record<ReportLine["tone"], Context["theme"]["text"]["base"]>> = {
+    accent: theme.text.action.primary.base,
+    text: theme.text.base,
+    muted: theme.text.muted,
+    warm: theme.text.feedback.warning.base,
+    danger: theme.text.feedback.error.base,
+    stale: theme.text.feedback.warning.base,
   }
   return colors[tone]
 }
@@ -150,7 +150,7 @@ export function ReportView(props: ReportViewProps) {
   const body = () => lines().slice(2)
 
   return (
-    <box width="100%" height="100%" flexDirection="column" backgroundColor={props.theme.background} padding={1}>
+    <box width="100%" height="100%" flexDirection="column" backgroundColor={props.theme.background.base} padding={1}>
       <box flexDirection="row" justifyContent="space-between" width="100%" marginBottom={1}>
         <text fg={reportToneColor(props.theme, header()[0]?.tone ?? "accent")} attributes={1}>
           {header()[0]?.text ?? "QUOTA / LIVE READ"}
