@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile as readFileFromDisk } from "node:fs/promises";
 import { promisify } from "node:util";
-import { join } from "node:path";
 
 import { getRuntimePaths } from "./paths.js";
+import { openReadonlySqlite, type ReadonlySqliteDatabase } from "./sqlite.js";
 
 const execFileAsync = promisify(execFile);
 const OPENAI_AUTH_SOURCES = ["openai", "codex", "chatgpt", "opencode"] as const;
@@ -23,7 +24,7 @@ export type OpenAIAuthResult =
       readonly expiresAt?: number;
     }
   | {
-      readonly state: AuthFailureState;
+      readonly state: AuthFailureState | "unavailable" | "unsupported_response";
       readonly message: string;
     };
 
@@ -40,8 +41,9 @@ export type ClaudeAuthResult =
     };
 
 export interface OpenCodeAuthReadOptions {
-  readonly paths?: readonly string[];
-  readonly readFile?: (path: string) => Promise<string>;
+  readonly dbPaths?: readonly string[];
+  readonly pathExists?: (path: string) => boolean;
+  readonly openDatabase?: (path: string) => Promise<ReadonlySqliteDatabase>;
   readonly now?: Date;
 }
 
@@ -139,7 +141,8 @@ function openAIEntry(value: unknown): {
       return expiresAt === undefined ? {} : { expiresAt };
     })(),
     ...(() => {
-      const accountId = readString(record, "accountId") ?? readString(record, "account_id");
+      const accountId = readString(asRecord(record.metadata) ?? {}, "accountID")
+        ?? readString(record, "accountId") ?? readString(record, "account_id");
       return accountId === undefined ? {} : { accountId };
     })(),
   };
@@ -173,20 +176,31 @@ export function resolveOpenAIAuth(auth: unknown, now = new Date()): OpenAIAuthRe
 }
 
 export async function loadOpenCodeAuth(options: OpenCodeAuthReadOptions = {}): Promise<OpenAIAuthResult> {
-  const paths = options.paths ?? getRuntimePaths().opencodeDataDirs.map((path) => join(path, "auth.json"));
-  const readFile = options.readFile ?? ((path: string) => readFileFromDisk(path, "utf8"));
-  let parsed: RecordValue | undefined;
-
-  for (const path of paths) {
-    try {
-      parsed = parseJson(await readFile(path));
-    } catch {
-      continue;
+  const paths = options.dbPaths ?? getRuntimePaths().opencodeDatabasePaths;
+  const pathExists = options.pathExists ?? existsSync;
+  let database: ReadonlySqliteDatabase | undefined;
+  try {
+    const path = paths.find((candidate) => candidate !== ":memory:" && pathExists(candidate));
+    if (!path) return { state: "not_configured", message: "OpenCode authentication is not configured." };
+    database = await (options.openDatabase ?? openReadonlySqlite)(path);
+    // Match V2's selected credential, including pre-active-flag rows. Never choose an inactive OAuth account over a selected key.
+    const row = database.get<{ value: unknown }>(
+      `SELECT value FROM credential WHERE integration_id = ?
+       ORDER BY active DESC, time_created DESC, id DESC LIMIT 1`,
+      ["openai"],
+    );
+    if (!row) return { state: "not_configured", message: "OpenAI OAuth authentication is not configured." };
+    const value = typeof row.value === "string" ? parseJson(row.value) : undefined;
+    if (!value || !["oauth", "key", "external", "api"].includes(String(value.type))
+      || (value.type === "oauth" && !openAIEntry(value))) {
+      return { state: "unsupported_response", message: "OpenAI credential format is unsupported." };
     }
-    if (parsed) break;
+    return resolveOpenAIAuth({ openai: value }, options.now);
+  } catch {
+    return { state: "unavailable", message: "OpenCode authentication could not be read." };
+  } finally {
+    database?.close();
   }
-
-  return resolveOpenAIAuth(parsed, options.now);
 }
 
 function extractClaudeOAuth(value: unknown): { accessToken: string; expiresAt?: number } | undefined {

@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 
 import {
   createCostMetric,
@@ -12,15 +11,13 @@ import { getRuntimePaths } from "../runtime/paths.js";
 import { openReadonlySqlite, type ReadonlySqliteDatabase } from "../runtime/sqlite.js";
 
 interface StoredMessage {
-  readonly role?: unknown;
-  readonly providerID?: unknown;
-  readonly modelID?: unknown;
+  readonly model?: { readonly providerID?: unknown; readonly id?: unknown };
   readonly time?: { readonly completed?: unknown };
   readonly tokens?: {
-    readonly total?: unknown;
     readonly input?: unknown;
     readonly output?: unknown;
     readonly reasoning?: unknown;
+    readonly cache?: { readonly read?: unknown; readonly write?: unknown };
   };
   readonly cost?: unknown;
 }
@@ -65,10 +62,7 @@ function parseMessage(value: unknown): StoredMessage | undefined {
 
 function tokenCount(tokens: StoredMessage["tokens"]): number {
   if (!tokens || typeof tokens !== "object") return 0;
-  const total = numberValue(tokens.total);
-  if (total !== undefined) return total;
-
-  const parts: readonly unknown[] = [tokens.input, tokens.output, tokens.reasoning];
+  const parts: readonly unknown[] = [tokens.input, tokens.output, tokens.reasoning, tokens.cache?.read, tokens.cache?.write];
   return parts.reduce<number>((sum, value) => sum + (numberValue(value) ?? 0), 0);
 }
 
@@ -132,7 +126,7 @@ export class OpenCodeUsageCollector implements Collector {
 
   constructor(options: OpenCodeUsageCollectorOptions = {}) {
     this.dbPaths =
-      options.dbPaths ?? getRuntimePaths().opencodeDataDirs.map((path) => join(path, "opencode.db"));
+      options.dbPaths ?? getRuntimePaths().opencodeDatabasePaths;
     this.pathExists = options.pathExists ?? existsSync;
     this.openDatabase = options.openDatabase ?? openReadonlySqlite;
     this.now = options.now ?? (() => new Date());
@@ -163,8 +157,9 @@ export class OpenCodeUsageCollector implements Collector {
       const monthStartMs = startOfUtcMonth(fetchedAt);
       const dayStartMs = startOfUtcDay(fetchedAt);
       const rows = database.all<MessageRow>(
-        `SELECT data FROM "message"
-         WHERE json_extract(data, '$.role') = 'assistant'
+        `SELECT data FROM "session_message"
+         WHERE type = 'assistant'
+           AND json_valid(data)
            AND json_type(data, '$.time.completed') IN ('integer', 'real')
            AND CAST(json_extract(data, '$.time.completed') AS REAL) >= ?
            AND CAST(json_extract(data, '$.time.completed') AS REAL) < ?
@@ -178,10 +173,10 @@ export class OpenCodeUsageCollector implements Collector {
       for (const row of rows) {
         const message = parseMessage(row.data);
         const completed = numberValue(message?.time?.completed);
-        if (message?.role !== "assistant" || completed === undefined) continue;
+        if (!message || completed === undefined) continue;
 
-        const provider = stringValue(message.providerID, "unknown-provider");
-        const model = stringValue(message.modelID, "unknown-model");
+        const provider = stringValue(message.model?.providerID, "unknown-provider");
+        const model = stringValue(message.model?.id, "unknown-model");
         const tokens = tokenCount(message.tokens);
         const cost = numberValue(message.cost) ?? 0;
         addToBucket(buckets, `Month\u0000${provider}\u0000${model}`, tokens, cost);

@@ -8,11 +8,10 @@ const at = (value: string) => Date.parse(value);
 
 function message(overrides: OpenCodeFixtureMessage): OpenCodeFixtureMessage {
   return {
-    role: "assistant",
-    providerID: "anthropic",
-    modelID: "claude-sonnet",
+    type: "assistant",
+    model: { providerID: "anthropic", id: "claude-sonnet" },
     time: { completed: at("2026-07-26T10:00:00.000Z") },
-    tokens: { total: 100, input: 70, output: 25, reasoning: 5 },
+    tokens: { input: 70, output: 25, reasoning: 5 },
     cost: 0.5,
     ...overrides,
   };
@@ -23,19 +22,18 @@ describe("OpenCodeUsageCollector", () => {
     const fixture = createOpenCodeFixture([
       message({}),
       message({
-        providerID: "openai",
-        modelID: "gpt-5",
+        model: { providerID: "openai", id: "gpt-5" },
         time: { completed: at("2026-07-25T23:59:59.999Z") },
-        tokens: { total: 50 },
+        tokens: { input: 50 },
         cost: 0.25,
       }),
       message({
         time: { completed: at("2026-07-01T00:00:00.000Z") },
-        tokens: { total: 25 },
+        tokens: { input: 25 },
         cost: 0.1,
       }),
-      message({ role: "user", tokens: { total: 999 }, cost: 99 }),
-      message({ time: {}, tokens: { total: 500 }, cost: 5 }),
+      message({ type: "user", tokens: { input: 999 }, cost: 99 }),
+      message({ time: {}, tokens: { input: 500 }, cost: 5 }),
     ]);
 
     const collector = new OpenCodeUsageCollector({
@@ -89,9 +87,11 @@ describe("OpenCodeUsageCollector", () => {
 
   it("uses UTC boundaries for day and month aggregation", async () => {
     const fixture = createOpenCodeFixture([
-      message({ time: { completed: at("2026-07-26T00:00:00.000Z") }, tokens: { total: 10 }, cost: 0.1 }),
-      message({ time: { completed: at("2026-07-01T00:00:00.000Z") }, tokens: { total: 20 }, cost: 0.2 }),
-      message({ time: { completed: at("2026-06-30T23:59:59.999Z") }, tokens: { total: 40 }, cost: 0.4 }),
+      message({ time: { completed: at("2026-07-26T00:00:00.000Z") }, tokens: { input: 10 }, cost: 0.1 }),
+      message({ time: { completed: at("2026-07-01T00:00:00.000Z") }, tokens: { input: 20 }, cost: 0.2 }),
+      message({ time: { completed: at("2026-06-30T23:59:59.999Z") }, tokens: { input: 40 }, cost: 0.4 }),
+      message({ time: { completed: NOW.getTime() }, tokens: { input: 80 }, cost: 0.8 }),
+      message({ time: { completed: NOW.getTime() + 1 }, tokens: { input: 160 }, cost: 1.6 }),
     ]);
 
     const collector = new OpenCodeUsageCollector({
@@ -158,5 +158,26 @@ describe("OpenCodeUsageCollector", () => {
     }).collect(controller.signal);
 
     expect(result).toMatchObject({ state: "timeout" });
+  });
+
+  it("includes cache reads and writes in V2 token totals", async () => {
+    const fixture = createOpenCodeFixture([message({
+      tokens: { input: 10, output: 20, reasoning: 3, cache: { read: 100, write: 50 } },
+    })]);
+    const result = await new OpenCodeUsageCollector({ dbPaths: ["memory"], pathExists: () => true,
+      openDatabase: async () => fixture.database, now: () => NOW,
+    }).collect(new AbortController().signal);
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") throw new Error("expected usage");
+    expect(result.metrics).toContainEqual(expect.objectContaining({ kind: "token_usage", used: 183 }));
+  });
+
+  it("returns unavailable for an incompatible schema instead of zero usage", async () => {
+    const result = await new OpenCodeUsageCollector({ dbPaths: ["incompatible"], pathExists: () => true,
+      openDatabase: async () => ({ all: () => { throw new Error("no such table") }, get: () => null, close() {} }),
+      now: () => NOW,
+    }).collect(new AbortController().signal);
+    expect(result).toMatchObject({ state: "unavailable" });
+    expect(result).not.toHaveProperty("metrics");
   });
 });

@@ -1,6 +1,9 @@
 import { Buffer } from "node:buffer";
+import { DatabaseSync } from "node:sqlite";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("node:fs/promises", () => ({ readFile: vi.fn(async () => { throw new Error("Use injected test credentials") }) }));
 
 import {
   getAdminKeys,
@@ -8,6 +11,29 @@ import {
   loadOpenCodeAuth,
   resolveOpenAIAuth,
 } from "../../src/runtime/auth.js";
+import type { ReadonlySqliteDatabase } from "../../src/runtime/sqlite.js";
+
+function credentialFixture(entries: readonly { value: unknown; active?: number; integration?: string; created?: number }[]) {
+  const db = new DatabaseSync(":memory:");
+  // OpenCode v2.2.0 packages/core/src/credential/sql.ts.
+  db.exec("CREATE TABLE credential (id TEXT PRIMARY KEY, integration_id TEXT, label TEXT NOT NULL, value TEXT NOT NULL, active INTEGER, time_created INTEGER, time_updated INTEGER)");
+  entries.forEach((entry, index) => db.prepare("INSERT INTO credential VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(`cred_${index}`, entry.integration ?? "openai", "OAuth", JSON.stringify(entry.value), entry.active ?? null, entry.created ?? index, 0));
+  const queries: string[] = [];
+  let closed = false;
+  const database: ReadonlySqliteDatabase = {
+    all<T>(sql: string, params: readonly unknown[] = []): T[] {
+      queries.push(sql);
+      return db.prepare(sql).all(...params as never[]) as T[];
+    },
+    get<T>(sql: string, params: readonly unknown[] = []): T | null {
+      queries.push(sql);
+      return (db.prepare(sql).get(...params as never[]) as T | undefined) ?? null;
+    },
+    close() { if (!closed) { closed = true; db.close() } },
+  };
+  return { database, queries, get closed() { return closed } };
+}
 
 function createJwt(payload: Record<string, unknown>): string {
   const encode = (value: unknown) =>
@@ -49,32 +75,68 @@ describe("OpenCode authentication", () => {
     expect(result.message).not.toContain(accessToken);
   });
 
-  it("loads OpenCode auth from the first existing candidate", async () => {
-    const reads: string[] = [];
+  it("loads the active V2 SQLite credential and its account metadata using read queries", async () => {
+    const fixture = credentialFixture([
+      { value: { type: "oauth", access: "selected", expires: 20_000, metadata: { accountID: "account-v2" } }, active: 1 },
+      { value: { type: "oauth", access: "newer-unselected", expires: 20_000 }, active: 0, created: 100 },
+      { value: { type: "oauth", access: "other-provider" }, integration: "anthropic", active: 1 },
+    ]);
     const result = await loadOpenCodeAuth({
-      paths: ["/missing/auth.json", "/valid/auth.json"],
-      readFile: async (path) => {
-        reads.push(path);
-        if (path === "/valid/auth.json") {
-          return JSON.stringify({ openai: { type: "oauth", access: "token" } });
-        }
-        throw Object.assign(new Error("missing"), { code: "ENOENT" });
-      },
+      dbPaths: ["/missing/opencode.db", "/valid/opencode.db"],
+      pathExists: (path) => path === "/valid/opencode.db",
+      openDatabase: async () => fixture.database,
+      now: new Date(10_000),
     });
-
-    expect(reads).toEqual(["/missing/auth.json", "/valid/auth.json"]);
-    expect(result.state).toBe("configured");
+    expect(result).toMatchObject({ state: "configured", source: "openai", accessToken: "selected", accountId: "account-v2" });
+    expect(fixture.queries.every((query) => /^\s*SELECT\b/i.test(query))).toBe(true);
+    expect(fixture.closed).toBe(true);
   });
 
-  it("returns not_configured for malformed or absent OpenCode auth", async () => {
-    const result = await loadOpenCodeAuth({
-      paths: ["/invalid/auth.json"],
-      readFile: async () => "not json",
-    });
+  it("selects the newest credential when older V2 rows have no active flag", async () => {
+    const fixture = credentialFixture([
+      { value: { type: "oauth", access: "old" } }, { value: { type: "oauth", access: "new" } },
+    ]);
+    expect(await loadOpenCodeAuth({ dbPaths: ["memory"], pathExists: () => true, openDatabase: async () => fixture.database }))
+      .toMatchObject({ state: "configured", accessToken: "new" });
+  });
 
+  it("returns not_configured for absent SQLite credentials", async () => {
+    const result = await loadOpenCodeAuth({ dbPaths: ["missing"], pathExists: () => false });
     expect(result).toMatchObject({ state: "not_configured" });
-    if (result.state === "configured") throw new Error("expected malformed credentials");
-    expect(result.message).not.toContain("not json");
+  });
+
+  it("does not fall back to an inactive OAuth account when an API key is selected", async () => {
+    const fixture = credentialFixture([
+      { value: { type: "oauth", access: "inactive" }, active: 0 },
+      { value: { type: "key", key: "inference-key" }, active: 1 },
+    ]);
+    expect(await loadOpenCodeAuth({ dbPaths: ["memory"], pathExists: () => true, openDatabase: async () => fixture.database }))
+      .toMatchObject({ state: "not_configured" });
+  });
+
+  it("reports expired V2 OAuth without exposing the token", async () => {
+    const fixture = credentialFixture([{ value: { type: "oauth", access: "secret-expired", expires: 1_000 } }]);
+    const result = await loadOpenCodeAuth({ dbPaths: ["memory"], pathExists: () => true,
+      openDatabase: async () => fixture.database, now: new Date(2_000),
+    });
+    expect(result).toMatchObject({ state: "unauthorized" });
+    expect(JSON.stringify(result)).not.toContain("secret-expired");
+  });
+
+  it.each(["invalid-secret-value", {}, { type: "unknown" }, { type: "oauth", access: "" }])("reports malformed SQLite credentials without leaking them: %j", async (value) => {
+    const fixture = credentialFixture([{ value }]);
+    const result = await loadOpenCodeAuth({ dbPaths: ["memory"], pathExists: () => true, openDatabase: async () => fixture.database });
+    expect(result).toMatchObject({ state: "unsupported_response" });
+    expect(JSON.stringify(result)).not.toContain("invalid-secret-value");
+    expect(fixture.closed).toBe(true);
+  });
+
+  it("reports unreadable storage separately from missing configuration", async () => {
+    const result = await loadOpenCodeAuth({ dbPaths: ["locked"], pathExists: () => true,
+      openDatabase: async () => { throw new Error("secret file path") },
+    });
+    expect(result).toMatchObject({ state: "unavailable" });
+    expect(JSON.stringify(result)).not.toContain("secret file path");
   });
 });
 
