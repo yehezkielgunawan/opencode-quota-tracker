@@ -10,45 +10,32 @@
 
 ## Requirements
 
-- OpenCode `1.18` or newer
+- OpenCode `2.2.0` or newer within V2 (V1 is not supported by this release)
 - Node.js `22.12.0` or newer when building or testing this package
 - A terminal OpenCode session for the TUI entry
 
 ## Install in OpenCode
 
-The OpenCode CLI can install the plugin and update your global config directly:
-
-```bash
-opencode plugin opencode-quota-tracker --global
-```
-
-Use the project config instead when the plugin should apply only to one repository:
-
-Add the package to the `plugin` array in either your project `.opencode/tui.json` or your global `~/.config/opencode/tui.json`:
+Add the package to the `plugins` array in your global `~/.config/opencode/cli.json` (or `$XDG_CONFIG_HOME/opencode/cli.json`):
 
 ```json
 {
-  "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-quota-tracker"]
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["opencode-quota-tracker"]
 }
 ```
 
-If you already have plugins, add this value without removing the existing entries. OpenCode installs npm plugins with Bun when it starts. You can also install the package yourself with npm or pnpm:
+If you already have plugins, add this value without removing the existing entries. OpenCode resolves the npm package and loads its `./tui` export. This package is TUI-only: do not add it to the server's `opencode.json`. V2 has no project-local `cli.json`.
 
-```bash
-npm install opencode-quota-tracker
-# or
-pnpm add opencode-quota-tracker
-```
+Start OpenCode, type `/quota` in the TUI, and run the command. It opens a local full-screen view and leaves the conversation transcript unchanged. Press Escape to return to the previous page.
 
-Restart OpenCode after changing the plugin configuration. Type `/quota` in the TUI and run the command. It opens a local full-screen view and leaves the conversation transcript unchanged.
+For local development, build this repository with `pnpm build` and add its absolute **directory** path to `cli.json`'s `plugins` array. V2 resolves the directory's `package.json` and `./tui` export; do not point it directly at `dist/tui.js`.
 
-OpenCode also loads local JavaScript and TypeScript plugins from these directories:
+### Migrating from V1
 
-- Project: `.opencode/plugins/`
-- Global: `~/.config/opencode/plugins/`
+Move this package's entry out of the old `tui.json` `plugin` array and into `cli.json`'s `plugins` array. The new release uses the V2 plugin API and does not run on V1; retain package version `0.1.4` if you still use V1. Do not load both releases together.
 
-For local development, build this repository with `pnpm build` and use the generated `dist/tui.js` as the plugin entry. The published package is the simpler option because its relative runtime modules and peer dependencies are already packaged for the `./tui` export.
+All collection runs on the terminal client's machine, including when connected to a remote server. The plugin does not read remote-server credentials or usage through the connected API.
 
 ## Configure credentials
 
@@ -56,7 +43,7 @@ The command has three separate data sections. A missing credential hides only it
 
 ### Subscription allowance
 
-OpenAI subscription data uses the OAuth account already configured in OpenCode. An ordinary `OPENAI_API_KEY` is not used for this section.
+OpenAI subscription data uses the selected OpenAI OAuth credential in the local OpenCode V2 database. An ordinary `OPENAI_API_KEY` or selected inference API key is not used for this section. The plugin reads credentials but never refreshes or writes them; reauthenticate in OpenCode if the stored token has expired.
 
 Anthropic subscription data uses Claude Code OAuth. On macOS, the plugin first checks the Keychain service `Claude Code-credentials`. It then falls back to `~/.claude/.credentials.json`. Anthropic OAuth from OpenCode is not used.
 
@@ -80,7 +67,7 @@ Do not paste real keys into `opencode.json`, this README, issue reports, or shel
 
 1. `Subscription allowance` shows provider-reported used percent, remaining percent, and provider reset countdowns.
 2. `API organization` shows official Admin API message tokens and provider-reported USD cost for the current UTC month.
-3. `This OpenCode installation` shows current UTC day and month-to-date tokens and recorded cost from OpenCode's own database.
+3. `This OpenCode installation` shows current UTC day and month-to-date tokens and recorded cost from completed V2 assistant messages in the local database, grouped by provider and model. Token totals include input, output, reasoning, cache reads, and cache writes. Separate compaction records and unmigrated V1 message records are not included.
 
 Configured provider blocks show their state, data authority, acquisition source, and freshness. Unconfigured blocks and sections with no visible providers are omitted; if every source is unconfigured, the view shows a short sign-in or Admin key prompt. A network or permission failure stays in its provider block instead of hiding successful data from other providers. A stale block is marked `STALE` when the last successful in-memory value is shown after a refresh failure. Historical per-model usage from this OpenCode installation remains visible.
 
@@ -91,23 +78,19 @@ The cache lasts five minutes and exists only in the running OpenCode process. Ru
 - OAuth tokens and Admin keys stay in memory and are never rendered, logged, or persisted by this plugin.
 - Provider requests use allowlisted HTTPS hosts and bounded timeouts.
 - Network responses are retained only in the process-local cache.
-- OpenCode's `opencode.db` is opened read-only.
+- OpenCode's database is opened read-only for selected credentials and usage. Paths follow V2's XDG roots on all platforms, with `OPENCODE_DB` and channel-specific database selection respected. In-memory server databases cannot be read by this plugin.
 - The plugin does not create a database, write OpenCode records, or store quota history.
 - Account identifiers are redacted before they can reach diagnostics.
 
 ## Troubleshooting
 
-**`/quota` is not discoverable:** Confirm the exact `opencode-quota-tracker` value is in the `plugin` array, then restart OpenCode. OpenCode selects the package's `./tui` export automatically. Check that the package name is not nested under another config key. If an older release is cached, refresh the current package explicitly:
-
-```bash
-opencode plugin opencode-quota-tracker@latest --global --force
-```
+**`/quota` is not discoverable:** Confirm you are running OpenCode `2.2.0` or newer within V2 and that `opencode-quota-tracker` is in global `cli.json`'s `plugins` array. OpenCode selects the package's `./tui` export automatically. Remove any duplicate V1 entry. To select a particular published release, use `opencode-quota-tracker@<version>` in that array.
 
 **An Admin block is missing:** Export the matching Admin variable in the environment that launches OpenCode. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` do not enable Admin accounting.
 
 **A subscription block is missing:** Sign in to OpenCode for OpenAI, or install and sign in with Claude Code for Anthropic. On macOS, check the Claude Code Keychain entry; on other systems, check the credentials file path.
 
-**Local usage is unavailable:** The plugin could not find or read OpenCode's database. It does not create a replacement database. Provider sections can still load normally.
+**Local usage is unavailable:** The plugin could not find or read the local V2 database or its usage schema. Check the terminal client's `XDG_DATA_HOME`, `OPENCODE_DB`, and release channel. Remote or in-memory databases are not available through local file reads. The plugin does not create a replacement database. Provider sections can still load normally.
 
 **A consumer response is unsupported:** Subscription endpoints are provider consumer surfaces and can change without notice. The plugin reports the changed payload instead of treating it as zero usage.
 
